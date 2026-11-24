@@ -29,6 +29,7 @@ Diese Sammlung enthält Bash-Skripte, mit denen sich Test- und Schulungsserver r
 | [update_wenom_testserver.sh](#update_wenom_testserversh) | WeNoM neu einspielen |
 | [wenom_to_multiwenom.sh](#wenom_to_multiwenomsh) | Mehrere WeNoM-Instanzen über eigene Subdomains |
 | [install_weblupo_testserver.sh](#install_weblupo_testserversh) | WebLuPO unter nginx einrichten |
+| [update_weblupo_testserver.sh](#update_weblupo_testserversh) | WebLuPO auf eine andere Version bringen |
 | [create_svws_testdbs.sh](#create_svws_testdbssh) | Test-Datenbanken (SQLite) in den SVWS-Server importieren |
 | [clone_db.sh](#clone_dbsh) | Eine Datenbank n-mal klonen |
 | [delete_all_svws_dbs.sh](#delete_all_svws_dbssh) | Alle Datenbanken des SVWS-Servers löschen |
@@ -91,7 +92,7 @@ Das Skript:
 
 + installiert MariaDB und Java (Temurin 21)
 + legt den Benutzer `svws` an
-+ klont das Repository nach `/app/SVWS-Server` und baut es mit Gradle (ohne Tests)
++ klont das Repository nach `/opt/app/SVWS-Server` und baut es mit Gradle (ohne Tests)
 + erzeugt Keystore und `svwsconfig.json` (Port `8443`)
 + richtet den systemd-Dienst `svws` ein und startet ihn
 + schreibt das MariaDB-Root-Passwort als `MARIADB_ROOT_PASSWORD` in eine `.env` neben dem Skript (nur für root lesbar). `create_svws_testdbs.sh` und `delete_all_svws_dbs.sh` lesen es von dort.
@@ -117,7 +118,7 @@ Der Dienst lässt sich mit `systemctl status svws` prüfen.
 
 ### update_testserver_fromScratch.sh
 
-Aktualisiert einen mit `install_svws_testserver_fromScratch.sh` installierten Server: Dienst stoppen, lokale Änderungen in `/app/SVWS-Server` verwerfen, `git pull`, mit Gradle neu bauen (`clean`, `wipe`, `assemble`) und Dienst wieder starten. Der Verlauf wird in `~/svws-update.log` protokolliert.
+Aktualisiert einen mit `install_svws_testserver_fromScratch.sh` installierten Server: Dienst stoppen, lokale Änderungen in `/opt/app/SVWS-Server` verwerfen, `git pull`, mit Gradle neu bauen (`clean`, `wipe`, `assemble`) und Dienst wieder starten. Der Verlauf wird in `~/svws-update.log` protokolliert.
 
 Das Skript hat außer `-h` keine Parameter und eignet sich z. B. für einen nächtlichen Cronjob.
 
@@ -169,13 +170,17 @@ Optional kann das Secret zu Testzwecken unter `https://<Server>/secret/secret.ht
 
 | Parameter | Info |
 |-|-|
-| -v | Pflicht: Version des SVWS-Servers (WeNoM wird passend dazu geladen) |
+| -v | Pflicht: Version des SVWS-Servers (WeNoM wird passend dazu geladen). Entfällt, wenn nur mit `-c` das Zertifikat erneuert werden soll. |
 | -y | Optional: ohne Sicherheitsabfrage ausführen |
+| -c | Optional: selbstsigniertes Zertifikat neu erzeugen (10 Jahre gültig) und Apache neu starten |
+| -d | Optional, nur mit `-c`: Domainname für Zertifikat und `ServerName`, ohne Angabe wird nur die IP verwendet |
 
-**Beispiel:**
+**Beispiele:**
 
 ```bash
 bash update_wenom_testserver.sh -v 1.3.3 -y
+bash update_wenom_testserver.sh -v 1.3.3 -y -c -d wenom.meineschule.de
+bash update_wenom_testserver.sh -c -d wenom.meineschule.de   # nur Zertifikat, WeNoM-Daten bleiben erhalten
 ```
 
 **Download** -> [update_wenom_testserver.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/update_wenom_testserver.sh)
@@ -233,6 +238,26 @@ Die WebLuPO ist danach unter `http://<Server-IP>` erreichbar.
 
 **Download** -> [install_weblupo_testserver.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/install_weblupo_testserver.sh)
 
+### update_weblupo_testserver.sh
+
+Lädt die WebLuPO der angegebenen Version herunter und entpackt sie nach `/var/www/html/weblupo`. Eine vorhandene Installation wird **ohne Rückfrage** überschrieben; die WebLuPO speichert keine Daten auf dem Server, deshalb geht dabei nichts verloren. Die nginx-Konfiguration aus `install_weblupo_testserver.sh` bleibt unverändert.
+
+Die alte Installation wird erst nach einem erfolgreichen Download ersetzt. Schlägt der Download fehl, z. B. wegen einer falschen Versionsnummer, bleibt die bisherige WebLuPO erhalten.
+
+**Optionen:**
+
+| Parameter | Info |
+|-|-|
+| -v | Pflicht: Version des SVWS-Servers (WebLuPO wird passend dazu geladen) |
+
+**Beispiel:**
+
+```bash
+bash update_weblupo_testserver.sh -v 1.5.1
+```
+
+**Download** -> [update_weblupo_testserver.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/update_weblupo_testserver.sh)
+
 ---
 
 ## Datenbanken verwalten
@@ -279,8 +304,8 @@ Das Skript:
 
 Voraussetzungen:
 
-+ Der Server wurde mit dem Linux-Installer installiert (systemd-Dienst `svws`).
-+ Die `svwsconfig.json` liegt unter `/opt/app/svws/conf`, `/opt/app/svws` oder `/etc/svws`.
++ Der Server wurde mit `install_svws_testserver.sh` (Linux-Installer) oder `install_svws_testserver_fromScratch.sh` installiert und läuft als systemd-Dienst `svws`.
++ Die `svwsconfig.json` liegt unter `/opt/app/svws/conf`, `/opt/app/svws` oder `/etc/svws` (Linux-Installer) bzw. unter `/opt/app/SVWS-Server/svws-server-app` (`install_svws_testserver_fromScratch.sh`).
 + `jq` ist installiert.
 
 **Optionen:**

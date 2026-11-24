@@ -31,7 +31,7 @@
 # --- Hilfe ---
 usage() {
     cat <<EOF
-Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>]
+Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>] [-v <Version>]
 
 Installiert einen All-in-one-Testserver. Der SVWS-Server wird dabei
 aus einem GitHub-Branch gebaut.
@@ -40,6 +40,8 @@ Optionen:
   -m  ServerMode, z. B. dev, alpha, beta, stable (optional, Standard: dev)
   -b  Git-Branch, z. B. dev oder master (optional, Standard: dev)
   -p  Passwort für den MariaDB-Root-User (optional, sonst Zufallsgenerierung)
+  -v  Release-Version für WeNoM, WebLuPO und SVWS-Tools, z. B. 1.5.1
+      (optional, Standard: neueste Version von github.com/SVWS-NRW/SVWS-Server/releases)
   -h  Diese Hilfe anzeigen (auch -help oder --help)
 
 Beispiel:
@@ -59,10 +61,12 @@ done
 BRANCH="dev"
 SERVERMODE="dev"
 MARIADB_ROOT_PASSWORD=""
+SVWSVERSION=""
 
 # Parameter mit getopts einlesen
-while getopts "p:b:m:" opt; do
+while getopts "p:b:m:v:" opt; do
   case $opt in
+    v) SVWSVERSION="${OPTARG#v}" ;;
     p) MARIADB_ROOT_PASSWORD="$OPTARG" ;;
     b) BRANCH="$OPTARG" ;;
     m) SERVERMODE="$OPTARG" ;;
@@ -82,6 +86,25 @@ if [ -z "$MARIADB_ROOT_PASSWORD" ]; then
 else
     PW_WAS_GENERATED=false
 fi
+
+#############################################
+# Release-Version für WeNoM, WebLuPO und SVWS-Tools ermitteln
+# (vor der Installation, damit ein Fehler sofort auffällt)
+#############################################
+# Aus einem Branch gebaute Server haben keine Release-Downloads,
+# daher werden WeNoM, WebLuPO und SVWS-Tools aus einem veröffentlichten Release geladen.
+if [ -z "$SVWSVERSION" ]; then
+    for tool in curl jq; do
+        command -v "$tool" &> /dev/null || { apt update && apt install -y "$tool"; }
+    done
+    SVWSVERSION=$(curl -s https://api.github.com/repos/SVWS-NRW/SVWS-Server/releases/latest | jq -r '.tag_name // empty')
+    SVWSVERSION="${SVWSVERSION#v}"
+    if [ -z "$SVWSVERSION" ]; then
+        echo "Fehler: Die neueste Release-Version konnte nicht ermittelt werden. Bitte mit -v angeben."
+        exit 1
+    fi
+fi
+echo "Verwende Release-Version für WeNoM, WebLuPO und SVWS-Tools: $SVWSVERSION"
 
 # Ordner, in dem dieses Skript liegt
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -161,6 +184,50 @@ if ! bash "${SCRIPTS_DIR}/install_svws_testserver_fromScratch.sh" \
     echo "Fehler: install_svws_testserver_fromScratch.sh wurde mit einem Fehler beendet."
     exit 1
 fi
+
+#############################################
+# 3. WeNoM installieren (Apache2, nur Port 443)
+# Vor der WebLuPO, damit Port 80 bei der Apache-Installation noch frei ist
+#############################################
+echo "Starte install_wenom_testserver.sh (Version: $SVWSVERSION)..."
+if ! bash "${SCRIPTS_DIR}/install_wenom_testserver.sh" -v "$SVWSVERSION"; then
+    echo "Fehler: install_wenom_testserver.sh wurde mit einem Fehler beendet."
+    exit 1
+fi
+
+#############################################
+# 4. WebLuPO installieren (nginx, Port 80)
+#############################################
+echo "Starte install_weblupo_testserver.sh (Version: $SVWSVERSION)..."
+if ! bash "${SCRIPTS_DIR}/install_weblupo_testserver.sh" -v "$SVWSVERSION"; then
+    echo "Fehler: install_weblupo_testserver.sh wurde mit einem Fehler beendet."
+    exit 1
+fi
+
+#############################################
+# 5. SVWS-Tools installieren
+#############################################
+TOOLS_DIR="/opt/app/svws/tools"
+TOOLS_URL="https://github.com/SVWS-NRW/SVWS-Tools/releases/download/v${SVWSVERSION}/svws-tools-${SVWSVERSION}.zip"
+SVWS_CONFIG="/opt/app/SVWS-Server/svws-server-app/svwsconfig.json"
+
+echo "Installiere SVWS-Tools ${SVWSVERSION} nach ${TOOLS_DIR}..."
+TMPZIP=$(mktemp --suffix=.zip)
+if ! wget -q -O "$TMPZIP" "$TOOLS_URL"; then
+    rm -f "$TMPZIP"
+    echo "Fehler: SVWS-Tools ${SVWSVERSION} konnten nicht geladen werden (gibt es dieses Release?)."
+    exit 1
+fi
+
+# ZIP unverändert in den Tools-Ordner entpacken (vorhandene Dateien werden überschrieben)
+mkdir -p "$TOOLS_DIR"
+unzip -q -o "$TMPZIP" -d "$TOOLS_DIR"
+rm -f "$TMPZIP"
+chown -R svws:svws "$TOOLS_DIR"
+
+# SVWS-Server auf die Tools hinweisen (AppsPath) und neu starten
+sed -i 's|"AppsPath"[[:space:]]*:[[:space:]]*[^,]*|"AppsPath" : "'"$TOOLS_DIR"'"|' "$SVWS_CONFIG"
+systemctl restart svws
 
 #############################################
 # TODO: weitere Installationsschritte

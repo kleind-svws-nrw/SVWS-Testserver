@@ -33,7 +33,7 @@ usage() {
     cat <<EOF
 Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>]
 
-Baut den SVWS-Server aus einem GitHub-Branch nach /app/SVWS-Server
+Baut den SVWS-Server aus einem GitHub-Branch nach /opt/app/SVWS-Server
 und richtet ihn als systemd-Dienst svws ein (Port 8443).
 Das MariaDB-Root-Passwort wird in die Datei .env neben diesem Skript
 geschrieben (MARIADB_ROOT_PASSWORD=...).
@@ -138,11 +138,11 @@ if ! id "svws" &>/dev/null; then
 fi
 
 # SVWS-Server Quellen einrichten und Server bauen
-mkdir -p /app/
-chown svws:svws /app
-cd /app/
+mkdir -p /opt/app/
+chown svws:svws /opt/app
+cd /opt/app/
 sudo -u svws git clone https://github.com/SVWS-NRW/SVWS-Server
-cd /app/SVWS-Server
+cd /opt/app/SVWS-Server
 sudo -u svws git switch ${BRANCH}
 
 # Build ohne Tests, inklusive explizitem OpenAPI-Schritt für Stabilität
@@ -151,10 +151,10 @@ sudo -u svws ./gradlew :svws-openapi:assembleTranspiled assemble -x test
 ## Server einrichten
 # keystore PW generieren
 PASSWORD1=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 12)
-sudo -u svws keytool -genkey -noprompt -alias svws -dname "CN=test, OU=svws, O=svws, L=svws, S=NRW, C=DE" -keystore /app/SVWS-Server/svws-server-app/keystore -storepass ${PASSWORD1} -keypass ${PASSWORD1} -keyalg RSA -validity 1000
+sudo -u svws keytool -genkey -noprompt -alias svws -dname "CN=test, OU=svws, O=svws, L=svws, S=NRW, C=DE" -keystore /opt/app/SVWS-Server/svws-server-app/keystore -storepass ${PASSWORD1} -keypass ${PASSWORD1} -keyalg RSA -validity 1000
 
 # svwsconfig.json erstellen
-cp /app/SVWS-Server/svws-server-app/src/main/resources/svwsconfig.json.example /app/SVWS-Server/svws-server-app/svwsconfig.json
+cp /opt/app/SVWS-Server/svws-server-app/src/main/resources/svwsconfig.json.example /opt/app/SVWS-Server/svws-server-app/svwsconfig.json
 
 # svwsconfig Eintragungen anpassen
 sed -i \
@@ -164,14 +164,14 @@ sed -i \
   -e 's|"TLSKeystorePassword"[[:space:]]*:[[:space:]]*"[^"]*"|"TLSKeystorePassword" : "'"${PASSWORD1}"'"|' \
   -e 's|"TLSKeyAlias"[[:space:]]*:[[:space:]]*null|"TLSKeyAlias" : "svws"|' \
   -e 's|"defaultschema"[[:space:]]*:[[:space:]]*"[^"]*"|"defaultschema" : null|' \
-  -e 's|"ClientPath"[[:space:]]*:[[:space:]]*"[^"]*"|"ClientPath" : "/app/SVWS-Server/svws-webclient/client/build/output"|' \
-  -e 's|"AdminClientPath"[[:space:]]*:[[:space:]]*"[^"]*"|"AdminClientPath" : "/app/SVWS-Server/svws-webclient/admin/build/output"|' \
+  -e 's|"ClientPath"[[:space:]]*:[[:space:]]*"[^"]*"|"ClientPath" : "/opt/app/SVWS-Server/svws-webclient/client/build/output"|' \
+  -e 's|"AdminClientPath"[[:space:]]*:[[:space:]]*"[^"]*"|"AdminClientPath" : "/opt/app/SVWS-Server/svws-webclient/admin/build/output"|' \
   -e '/"SchemaKonfiguration"[[:space:]]*:/,/]/c\    "SchemaKonfiguration" : [],' \
-  /app/SVWS-Server/svws-server-app/svwsconfig.json
+  /opt/app/SVWS-Server/svws-server-app/svwsconfig.json
   
 # SVWS-Server als Dienst einrichten
-chown -R svws:svws /app/SVWS-Server
-git config --global --add safe.directory /app/SVWS-Server
+chown -R svws:svws /opt/app/SVWS-Server
+git config --global --add safe.directory /opt/app/SVWS-Server
 
 echo "[Unit]
 Description=SVWS Server
@@ -180,8 +180,8 @@ After=network.target mariadb.service
 [Service]
 User=svws
 Type=simple
-WorkingDirectory=/app/SVWS-Server/svws-server-app
-ExecStart=/bin/bash /app/SVWS-Server/svws-server-app/start_server.sh
+WorkingDirectory=/opt/app/SVWS-Server/svws-server-app
+ExecStart=/bin/bash /opt/app/SVWS-Server/svws-server-app/start_server.sh
 Restart=on-failure
 RestartSec=5s
 

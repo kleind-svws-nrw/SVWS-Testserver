@@ -93,6 +93,7 @@ POSSIBLE_PATHS=(
     "/opt/app/svws/conf/svwsconfig.json"
     "/opt/app/svws/svwsconfig.json"
     "/etc/svws/svwsconfig.json"
+    "/opt/app/SVWS-Server/svws-server-app/svwsconfig.json"   # install_svws_testserver_fromScratch.sh
 )
 
 CONFIG_FILE=""

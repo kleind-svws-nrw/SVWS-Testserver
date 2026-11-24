@@ -33,7 +33,7 @@ usage() {
     cat <<EOF
 Verwendung: bash $(basename "$0")
 
-Aktualisiert einen aus GitHub gebauten SVWS-Server in /app/SVWS-Server
+Aktualisiert einen aus GitHub gebauten SVWS-Server in /opt/app/SVWS-Server
 (git pull, Neubau mit Gradle, Neustart des Dienstes svws). Log: ~/svws-update.log
 
 Optionen:
@@ -53,7 +53,7 @@ for arg in "$@"; do
 done
 
 # Configuration
-APP_DIR="/app/SVWS-Server"
+APP_DIR="/opt/app/SVWS-Server"
 LOG_FILE="$HOME/svws-update.log"
 SERVICE_NAME="svws"
 

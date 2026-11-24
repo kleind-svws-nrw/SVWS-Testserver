@@ -31,18 +31,25 @@
 # --- Hilfe ---
 usage() {
     cat <<EOF
-Verwendung: bash $(basename "$0") -v <Version> [-y]
+Verwendung: bash $(basename "$0") -v <Version> [-y] [-c [-d <Domain>]]
+       bash $(basename "$0") -c [-d <Domain>]
 
-Spielt den WeNoM unter /var/www/html/wenom neu ein.
-ACHTUNG: Alle WeNoM-Daten werden gelöscht!
+Spielt den WeNoM unter /var/www/html/wenom neu ein (mit -v).
+ACHTUNG: Dabei werden alle WeNoM-Daten gelöscht!
+Nur mit -c (ohne -v) wird ausschließlich das Zertifikat erneuert,
+die WeNoM-Installation und ihre Daten bleiben unverändert.
 
 Optionen:
-  -v  Version des SVWS-Servers, z. B. 1.3.3 (Pflicht)
+  -v  Version des SVWS-Servers, z. B. 1.3.3 (Pflicht, außer bei nur -c)
   -y  Ohne Sicherheitsabfrage ausführen
+  -c  Selbstsigniertes Zertifikat neu erzeugen (10 Jahre gültig)
+  -d  Domainname für das neue Zertifikat (nur mit -c, sonst nur die IP)
   -h  Diese Hilfe anzeigen
 
-Beispiel:
+Beispiele:
   bash $(basename "$0") -v 1.3.3 -y
+  bash $(basename "$0") -v 1.3.3 -y -c -d wenom.meineschule.de
+  bash $(basename "$0") -c -d wenom.meineschule.de     # nur Zertifikat
 EOF
     exit "${1:-1}"
 }
@@ -59,9 +66,10 @@ SVWSVERSION=""
 
 # Parameter auswerten
 AUTO_YES=false
+NEW_CERT=false
+DOMAIN=""
 
-
-while getopts "v:y" opt; do
+while getopts "v:ycd:" opt; do
     case "$opt" in
         v)
             SVWSVERSION="$OPTARG"
@@ -69,77 +77,153 @@ while getopts "v:y" opt; do
         y)
             AUTO_YES=true
             ;;
+        c)
+            NEW_CERT=true
+            ;;
+        d)
+            DOMAIN="$OPTARG"
+            ;;
         *)
             usage
             ;;
     esac
 done
 
-# Verpflichtende Prüfung der SVWS-Version
-if [ -z "$SVWSVERSION" ]; then
-    echo -e "\e[31mFehler: Die SVWS-Version (-v) muss angegeben werden!\e[0m"
+# -v ist Pflicht, außer es soll nur das Zertifikat erneuert werden (-c)
+if [ -z "$SVWSVERSION" ] && [ "$NEW_CERT" = false ]; then
+    echo -e "\e[31mFehler: Die SVWS-Version (-v) muss angegeben werden (oder -c für nur das Zertifikat)!\e[0m"
     usage
 fi
 
-DOWNLOADPATH="https://github.com/SVWS-NRW/SVWS-Server/releases/download/v${SVWSVERSION}/WeNoM-${SVWSVERSION}.zip"
-
-# Sicherheitsabfrage nur ohne -y
-if [ "$AUTO_YES" = false ]; then
-    echo "Achtung!"
-    echo "Es wird WeNoM ${SVWSVERSION} installiert."
-    echo "Das Update überschreibt die bestehende Installation"
-    echo "und löscht alle Datenbankeinträge."
-    echo "Bitte vorher ein Backup erstellen!"
-    echo
-
-    read -rp "Wollen Sie wirklich alle Daten löschen? [y/N] " antwort
-
-    case "$antwort" in
-        [yY]|[yY][eE][sS])
-            echo "Update wird gestartet..."
-            ;;
-        *)
-            echo "Update abgebrochen."
-            exit 0
-            ;;
-    esac
+if [ -n "$SVWSVERSION" ]; then
+    DO_UPDATE=true
+else
+    DO_UPDATE=false
+    echo "Kein -v angegeben: Es wird nur das Zertifikat erneuert, der WeNoM bleibt unverändert."
 fi
 
-# System-Update
-apt update && apt upgrade -y && apt autoremove -y
+if [ -n "$DOMAIN" ] && [ "$NEW_CERT" = false ]; then
+    echo "Hinweis: -d wirkt nur zusammen mit -c und wird ignoriert."
+fi
 
-# Verzeichnisse vorbereiten
+########### WeNoM neu einspielen (nur mit -v) ###########
+if [ "$DO_UPDATE" = true ]; then
+    DOWNLOADPATH="https://github.com/SVWS-NRW/SVWS-Server/releases/download/v${SVWSVERSION}/WeNoM-${SVWSVERSION}.zip"
 
-########## optional: Datenbank sichern in root ordner ###########
-# cp "$INSTALLPATH/db/app.sqlite" "/root/app.sqlite.backup.$(date +%Y%m%d_%H%M%S)"
-rm -rf "$INSTALLPATH"/*
-cd "$INSTALLPATH" || exit 1
-wget -O wenom.zip "$DOWNLOADPATH"
-unzip -q wenom.zip
+    # Sicherheitsabfrage nur ohne -y
+    if [ "$AUTO_YES" = false ]; then
+        echo "Achtung!"
+        echo "Es wird WeNoM ${SVWSVERSION} installiert."
+        [ "$NEW_CERT" = true ] && echo "Außerdem wird ein neues Zertifikat erzeugt."
+        echo "Das Update überschreibt die bestehende Installation"
+        echo "und löscht alle Datenbankeinträge."
+        echo "Bitte vorher ein Backup erstellen!"
+        echo
 
-# Berechtigungen sicher setzen
-chown -R www-data:www-data "$INSTALLPATH"
-find "$INSTALLPATH" -type d -exec chmod 755 {} +
-find "$INSTALLPATH" -type f -exec chmod 644 {} +
+        read -rp "Wollen Sie wirklich alle Daten löschen? [y/N] " antwort
 
-# API-Setup triggern
-curl -k --request GET --url https://localhost/api/setup \
-     --header "Content-Type: application/x-www-form-urlencoded"
+        case "$antwort" in
+            [yY]|[yY][eE][sS])
+                echo "Update wird gestartet..."
+                ;;
+            *)
+                echo "Update abgebrochen."
+                exit 0
+                ;;
+        esac
+    fi
 
-echo -e "\nDas Secret zum Verbinden mit dem SVWS Server ist:\n"
-cat "$INSTALLPATH/db/client.sec"
-echo ""
+    # System-Update
+    apt update && apt upgrade -y && apt autoremove -y
 
-########### optional: Das secret des Testservers bereitstellen ############
-# mkdir -p /var/www/html/secret
-#echo -e "\n\n!!! Achtung: Das Secret wird unter https://URL/secret.html veröffentlicht !!!"
-#echo "!!! Nur für Testzwecke geeignet !!!"
-#echo
-# cat "$INSTALLPATH/db/client.sec" > /var/www/html/secret/secret.html
+    # Verzeichnisse vorbereiten
 
-########### optional: eingerichtete DB-User wieder zurück kopieren ###########
-#cp /root/app.sqlite.backup "$INSTALLPATH/db/app.sqlite"
+    ########## optional: Datenbank sichern in root ordner ###########
+    # cp "$INSTALLPATH/db/app.sqlite" "/root/app.sqlite.backup.$(date +%Y%m%d_%H%M%S)"
+    rm -rf "$INSTALLPATH"/*
+    cd "$INSTALLPATH" || exit 1
+    wget -O wenom.zip "$DOWNLOADPATH"
+    unzip -q wenom.zip
 
-chown -R www-data:www-data $INSTALLPATH
+    # Berechtigungen sicher setzen
+    chown -R www-data:www-data "$INSTALLPATH"
+    find "$INSTALLPATH" -type d -exec chmod 755 {} +
+    find "$INSTALLPATH" -type f -exec chmod 644 {} +
 
-echo "Deployment erfolgreich abgeschlossen!"
+    # API-Setup triggern
+    curl -k --request GET --url https://localhost/api/setup \
+         --header "Content-Type: application/x-www-form-urlencoded"
+
+    echo -e "\nDas Secret zum Verbinden mit dem SVWS Server ist:\n"
+    cat "$INSTALLPATH/db/client.sec"
+    echo ""
+
+    ########### optional: Das secret des Testservers bereitstellen ############
+    # mkdir -p /var/www/html/secret
+    #echo -e "\n\n!!! Achtung: Das Secret wird unter https://URL/secret.html veröffentlicht !!!"
+    #echo "!!! Nur für Testzwecke geeignet !!!"
+    #echo
+    # cat "$INSTALLPATH/db/client.sec" > /var/www/html/secret/secret.html
+
+    ########### optional: eingerichtete DB-User wieder zurück kopieren ###########
+    #cp /root/app.sqlite.backup "$INSTALLPATH/db/app.sqlite"
+
+    chown -R www-data:www-data $INSTALLPATH
+fi
+
+########### optional (-c): Zertifikat neu erzeugen ###########
+if [ "$NEW_CERT" = true ]; then
+    SSL_CONF="/etc/apache2/sites-available/default-ssl.conf"
+    CERT_KEY="/etc/ssl/private/wenomtest-selfsigned.key"
+    CERT_CRT="/etc/ssl/certs/wenomtest-selfsigned.crt"
+    SERVER_IP=$(hostname -I | awk '{print $1}')
+    USEIP=false
+
+    # Domain optional - Fallback auf Server-IP
+    if [ -z "$DOMAIN" ]; then
+        DOMAIN="$SERVER_IP"
+        echo "Keine Domain angegeben. Nutze IP-Adresse: $DOMAIN"
+        USEIP=true
+    fi
+
+    # ServerName setzen: vorhandenen Eintrag ersetzen, sonst nach DocumentRoot einfügen
+    if grep -q "^[[:space:]]*ServerName" "$SSL_CONF"; then
+        sed -i "s|^\([[:space:]]*\)ServerName.*|\1ServerName ${DOMAIN}|" "$SSL_CONF"
+    else
+        sed -i "/DocumentRoot/a \ \ \ \ ServerName ${DOMAIN}" "$SSL_CONF"
+    fi
+
+    echo "Generiere selbstsigniertes Zertifikat..."
+    if [ "$USEIP" = true ]; then
+        # Nur IP im Zertifikat
+        openssl req -x509 -nodes -days 3650 -newkey rsa:4096 \
+            -keyout "$CERT_KEY" -out "$CERT_CRT" \
+            -subj "/C=DE/ST=NRW/L=NRW/O=NONE/CN=${SERVER_IP}" \
+            -addext "subjectAltName = IP:${SERVER_IP}"
+    else
+        # Domain UND IP im Zertifikat (Best Practice)
+        openssl req -x509 -nodes -days 3650 -newkey rsa:4096 \
+            -keyout "$CERT_KEY" -out "$CERT_CRT" \
+            -subj "/C=DE/ST=NRW/L=NRW/O=NONE/CN=${DOMAIN}" \
+            -addext "subjectAltName = DNS:${DOMAIN}, IP:${SERVER_IP}"
+    fi
+
+    # Apache auf die neuen Zertifikats-Dateien hinweisen
+    sed -i "s|SSLCertificateFile.*|SSLCertificateFile ${CERT_CRT}|" "$SSL_CONF"
+    sed -i "s|SSLCertificateKeyFile.*|SSLCertificateKeyFile ${CERT_KEY}|" "$SSL_CONF"
+
+    # Apache testen und neustarten
+    if apache2ctl configtest; then
+        systemctl restart apache2
+        echo -e "\n################# Zertifikat für $DOMAIN neu generiert! ####################\n"
+    else
+        echo "Fehler: Die Apache-Konfiguration ist fehlerhaft, Apache wurde nicht neu gestartet."
+        exit 1
+    fi
+fi
+
+if [ "$DO_UPDATE" = true ]; then
+    echo "Deployment erfolgreich abgeschlossen!"
+else
+    echo "Zertifikat erfolgreich erneuert!"
+fi
