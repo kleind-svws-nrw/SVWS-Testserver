@@ -28,18 +28,38 @@
 # SOFTWARE.
 ##############################################################################
 
+# --- Hilfe ---
+usage() {
+    cat <<EOF
+Verwendung: bash $(basename "$0") -v <Version> [-y]
+
+Spielt den WeNoM unter /var/www/html/wenom neu ein.
+ACHTUNG: Alle WeNoM-Daten werden gelöscht!
+
+Optionen:
+  -v  Version des SVWS-Servers, z. B. 1.3.3 (Pflicht)
+  -y  Ohne Sicherheitsabfrage ausführen
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0") -v 1.3.3 -y
+EOF
+    exit "${1:-1}"
+}
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
 INSTALLPATH=/var/www/html/wenom
 SVWSVERSION=""
 
 # Parameter auswerten
 AUTO_YES=false
 
-usage() {
-    echo "Verwendung: $0 -v <SVWS-Version> [-y]"
-    echo "  -v  Version des SVWS-Servers, zu der der WeNoM passt (z.B. 1.3.3)"
-    echo "  -y  Ohne Sicherheitsabfrage ausführen"
-    exit 1
-}
 
 while getopts "v:y" opt; do
     case "$opt" in

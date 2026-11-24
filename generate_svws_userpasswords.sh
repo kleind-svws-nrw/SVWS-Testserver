@@ -28,6 +28,32 @@
 # SOFTWARE.
 ##############################################################################
 
+# --- Hilfe ---
+usage() {
+    cat <<EOF
+Verwendung: bash $(basename "$0")
+
+Setzt für alle Benutzer einer SVWS-Datenbank außer Admin ein zufälliges Kennwort
+und schreibt die Liste in die Datei Kennwoerter.txt.
+Vor dem Aufruf oben im Skript eintragen: SERVERNAME, APP_PORT, SCHEMA_NAME,
+MARIADB_ROOT_PASSWORD, SVWS_ADMIN, SVWS_ADMIN_PW.
+
+Optionen:
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0")
+EOF
+    exit "${1:-1}"
+}
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
 # --- Konfiguration ---
 # Die Variablen SERVERNAME, APP_PORT, SCHEMA_NAME und MARIADB_ROOT_PASSWORD 
 # sollten idealerweise als Umgebungsvariablen gesetzt sein. 

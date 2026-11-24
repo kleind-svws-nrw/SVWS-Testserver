@@ -28,13 +28,33 @@
 # SOFTWARE.
 ##############################################################################
 
-# Standard-Hilfefunktion
+# --- Hilfe ---
 usage() {
-  echo "Usage: $0 -p <password> -v <serverversion>"
-  echo "  -p  Passwort für MariaDB und Keystore"
-  echo "  -v  SVWS-Server Version (z.B. 1.1.1)"
-  exit 1
+    cat <<EOF
+Verwendung: bash $(basename "$0") -v <Version> -p <Passwort>
+
+Installiert den SVWS-Server mit dem offiziellen Linux-Installer ohne Rückfragen
+(MariaDB lokal, /opt/app/svws, Port 8443).
+
+Optionen:
+  -v  Version des SVWS-Servers, z. B. 1.3.2 (Pflicht)
+  -p  Passwort für MariaDB-Root und Keystore (Pflicht)
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0") -v 1.3.2 -p svwsadmin
+EOF
+    exit "${1:-1}"
 }
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
+# Standard-Hilfefunktion
 
 # Parameter auslesen
 while getopts "p:v:" opt; do

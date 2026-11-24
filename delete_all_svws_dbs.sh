@@ -28,6 +28,33 @@
 # SOFTWARE.
 ##############################################################################
 
+# --- Hilfe ---
+usage() {
+    cat <<EOF
+Verwendung: bash $(basename "$0") [-p <Passwort>] [-s <Servername>] [-Y]
+
+Löscht ALLE Datenbanken (Schemata) des SVWS-Servers über die API.
+Werte aus einer .env neben dem Skript werden übernommen (z. B. MARIADB_ROOT_PASSWORD, APP_PORT).
+
+Optionen:
+  -p  MariaDB-Root-Passwort (Pflicht, wenn keine .env vorhanden ist)
+  -s  Servername (Standard: localhost)
+  -Y  Ohne Sicherheitsabfrage löschen
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0") -p svwsadmin
+EOF
+    exit "${1:-1}"
+}
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
 set -e
 
 # --- 0. Abhängigkeiten prüfen (jq) ---
@@ -64,12 +91,8 @@ while getopts "p:s:yYh" opt; do
     p) MARIADB_ROOT_PASSWORD="$OPTARG" ;;
     s) SERVERNAME="$OPTARG" ;;
     y|Y) AUTO_CONFIRM=true ;;
-    h) 
-       echo "Nutzung: $0 [-p PASSWORT] [-s SERVERNAME] [-Y]"
-       echo "  -Y : Löschvorgang ohne Interaktionsabfrage sofort ausführen"
-       exit 0
-       ;;
-    *) exit 1 ;;
+    h) usage 0 ;;
+    *) usage ;;
   esac
 done
 

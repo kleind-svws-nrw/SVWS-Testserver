@@ -28,14 +28,39 @@
 # SOFTWARE.
 ##############################################################################
 
-INSTALLPATH=/var/www/html
+# --- Hilfe ---
+usage() {
+    cat <<EOF
+Verwendung: bash $(basename "$0") -v <Version>
+
+Installiert nginx und richtet die WebLuPO unter /var/www/html/weblupo ein.
+nginx liefert sie als Standard-Site auf Port 80 aus (http://<Server-IP>).
+
+Optionen:
+  -v  Version des SVWS-Servers, z. B. 1.3.2 (Pflicht)
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0") -v 1.3.2
+EOF
+    exit "${1:-1}"
+}
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
+INSTALLPATH=/var/www/html/weblupo
+NGINX_SITE=/etc/nginx/sites-available/weblupo
 
 # Parameter-Abfrage mit getopts
-while getopts "v:d:" opt; do
+while getopts "v:" opt; do
   case $opt in
     v) SVWSVERSION=$OPTARG ;;
-    *) echo "Benutzung: $0 -v [SVWS-Version]" >&2
-       exit 1 ;;
+    *) usage ;;
   esac
 done
 
@@ -59,14 +84,52 @@ export LANG=de_DE.UTF-8
 export LC_ALL=de_DE.UTF-8
 timedatectl set-timezone Europe/Berlin
 
-### Apache2 installation
+### Prüfen, ob Port 80 schon von einem anderen Dienst belegt ist (z. B. Apache2)
+if ss -ltnp 2>/dev/null | grep -E ':80[[:space:]]' | grep -vq nginx; then
+    echo -e "\e[31mFehler: Port 80 wird bereits von einem anderen Dienst verwendet:\e[0m"
+    ss -ltnp | grep -E ':80[[:space:]]'
+    echo "Bitte diesen Dienst zuerst auf Port 80 abschalten (bei Apache2: 'Listen 80' in /etc/apache2/ports.conf auskommentieren)."
+    exit 1
+fi
+
+### nginx installation
 apt update && apt upgrade -y
-apt install -y curl zip unzip dnsutils nmap net-tools nano mc ca-certificates gnupg2 lsb-release openssl apt-transport-https gnupg apache2 
+apt install -y curl wget zip unzip dnsutils nmap net-tools nano mc ca-certificates gnupg2 lsb-release openssl apt-transport-https gnupg nginx
 
-# Download und Entpacken 
+# Download und Entpacken
 echo "Download und Entpacken WebLuPo von $DOWNLOADPATH"
-cd $INSTALLPATH
-wget $DOWNLOADPATH
-unzip -o SVWS-Laufbahnplanung-${SVWSVERSION}.zip
+mkdir -p "$INSTALLPATH"
+TMPZIP=$(mktemp --suffix=.zip)
+wget -O "$TMPZIP" "$DOWNLOADPATH"
+unzip -o "$TMPZIP" -d "$INSTALLPATH"
+rm -f "$TMPZIP"
+chown -R www-data:www-data "$INSTALLPATH"
 
+### nginx-Site für die WebLuPO auf Port 80 als Standard-Site einrichten
+cat <<'EOF' > "$NGINX_SITE"
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    root /var/www/html/weblupo;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+EOF
+
+# mitgelieferte Standard-Site von nginx entfernen und WebLuPO-Site aktivieren
+rm -f /etc/nginx/sites-enabled/default
+ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/weblupo
+
+# Konfiguration testen und nginx (neu) starten
+nginx -t
+systemctl enable nginx
+systemctl restart nginx
+
+SERVER_IP=$(hostname -I | awk '{print $1}')
 echo -e "\n\n################# Installation WebLuPo beendet! ####################\n"
+echo "Die WebLuPO ist erreichbar unter: http://${SERVER_IP}"
