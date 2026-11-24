@@ -1,4 +1,32 @@
 #!/bin/bash
+##############################################################################
+# Importiert SQLite-Testdatenbanken in den SVWS-Server
+##############################################################################
+#
+# Copyright (c) November 2026 Theo Richter & David Klein
+#
+# SPDX-License-Identifier: MIT
+#
+# MIT License
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+##############################################################################
 
 # Abbrechen, wenn ein Befehl mit Fehler beendet wird
 set -e
@@ -9,17 +37,21 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 
 MYSQLROOTPW=""
 
-# 1. Versuch: Aus .env Datei lesen
-if [ -f "$ENV_FILE" ]; then
-    ENV_PASS=$(grep -E '^MARIADB_ROOT_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- | tr -d '"' | tr -d "'")
-    if [ -n "$ENV_PASS" ]; then
-        MYSQLROOTPW="$ENV_PASS"
-        echo "✓ Passwort aus .env geladen."
-    else
-        echo "Fehler: Kein Passwort gefunden!"
-        echo "Es wurde kein 'MARIADB_ROOT_PASSWORD' in '$ENV_FILE' gefunden."
-        exit 1
-    fi
+# MariaDB-Root-Passwort aus der .env Datei lesen
+if [ ! -f "$ENV_FILE" ]; then
+    echo "Fehler: Die Datei '$ENV_FILE' wurde nicht gefunden!"
+    echo "Sie muss die Zeile 'MARIADB_ROOT_PASSWORD=<Passwort>' enthalten."
+    exit 1
+fi
+
+ENV_PASS=$(grep -E '^MARIADB_ROOT_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- | tr -d '"' | tr -d "'")
+if [ -n "$ENV_PASS" ]; then
+    MYSQLROOTPW="$ENV_PASS"
+    echo "✓ Passwort aus .env geladen."
+else
+    echo "Fehler: Kein Passwort gefunden!"
+    echo "Es wurde kein 'MARIADB_ROOT_PASSWORD' in '$ENV_FILE' gefunden."
+    exit 1
 fi
 
 # --- STANDARD-EINSTELLUNGEN ---
@@ -40,8 +72,7 @@ while getopts "u:p:d:" opt; do
   esac
 done
 
-echo "Username: $USERNAME"
-echo "Password: $PASSWORD"
+echo "Schema-Benutzer: $USERNAME"
 
 # Ordner erstellen, falls er nicht existiert
 mkdir -p "$FOLDER_NAME"
