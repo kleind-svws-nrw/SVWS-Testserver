@@ -63,7 +63,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 
-MYSQLROOTPW=""
+MARIADB_ROOT_PASSWORD=""
 
 # MariaDB-Root-Passwort aus der .env Datei lesen
 if [ ! -f "$ENV_FILE" ]; then
@@ -74,7 +74,7 @@ fi
 
 ENV_PASS=$(grep -E '^MARIADB_ROOT_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- | tr -d '"' | tr -d "'")
 if [ -n "$ENV_PASS" ]; then
-    MYSQLROOTPW="$ENV_PASS"
+    MARIADB_ROOT_PASSWORD="$ENV_PASS"
     echo "✓ Passwort aus .env geladen."
 else
     echo "Fehler: Kein Passwort gefunden!"
@@ -184,7 +184,7 @@ for file in "${sqlite_files[@]}"; do
     echo "Ziel-Schema:      $SCHEMA_NAME"
     
     curl -k -X POST "${API_URL}${SCHEMA_NAME}" \
-      -u "root:${MYSQLROOTPW}" \
+      -u "root:${MARIADB_ROOT_PASSWORD}" \
       -H 'accept: application/json' \
       -H 'Content-Type: multipart/form-data' \
       -F "database=@${file}" \

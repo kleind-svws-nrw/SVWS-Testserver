@@ -1,0 +1,10 @@
+# Zugangsdaten – niemals committen
+.env
+.env.tmp
+Kennwoerter.txt
+
+# Von den Skripten bei Testläufen erzeugte Dateien und Ordner
+Installationsskripte/
+SVWS-TestSqlites/
+temp_*.sql
+*.log

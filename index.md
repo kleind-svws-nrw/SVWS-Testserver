@@ -22,9 +22,9 @@ Diese Sammlung enthält Bash-Skripte, mit denen sich Test- und Schulungsserver r
 | Skript | Zweck |
 |-|-|
 | [download_all_scripts.sh](#download_all_scriptssh) | Lädt alle Skripte dieser Sammlung herunter |
-| [install_svws_testserver_linuxinstaller.sh](#install_svws_testserver_linuxinstallersh) | SVWS-Server mit dem offiziellen Linux-Installer |
+| [install_svws_testserver.sh](#install_svws_testserversh) | SVWS-Server mit dem offiziellen Linux-Installer |
 | [install_svws_testserver_fromScratch.sh](#install_svws_testserver_fromscratchsh) | SVWS-Server aus einem GitHub-Branch bauen |
-| [update_testserver_from_scratch.sh](#update_testserver_from_scratchsh) | Aus dem Branch gebauten SVWS-Server aktualisieren |
+| [update_testserver_fromScratch.sh](#update_testserver_fromscratchsh) | Aus dem Branch gebauten SVWS-Server aktualisieren |
 | [install_wenom_testserver.sh](#install_wenom_testserversh) | WeNoM unter Apache2 einrichten |
 | [update_wenom_testserver.sh](#update_wenom_testserversh) | WeNoM neu einspielen |
 | [wenom_to_multiwenom.sh](#wenom_to_multiwenomsh) | Mehrere WeNoM-Instanzen über eigene Subdomains |
@@ -45,18 +45,18 @@ Lädt alle Skripte dieser Sammlung über die GitHub-API in den neu angelegten Un
 **Beispiel:**
 
 ```bash
-wget https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/download_all_scripts.sh
+wget https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/download_all_scripts.sh
 bash download_all_scripts.sh
 cd Installationsskripte
 ```
 
-**Download** -> [download_all_scripts.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/download_all_scripts.sh)
+**Download** -> [download_all_scripts.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/download_all_scripts.sh)
 
 ---
 
 ## SVWS-Server installieren
 
-### install_svws_testserver_linuxinstaller.sh
+### install_svws_testserver.sh
 
 Installiert den SVWS-Server mit dem auf GitHub veröffentlichten Linux-Installer. Das Skript lädt Installer und Server-Paket der angegebenen Version herunter und schreibt vorab alle Antworten in eine `.env`-Datei, sodass die Installation ohne Rückfragen durchläuft.
 
@@ -76,12 +76,12 @@ Ergebnis:
 **Beispiel:**
 
 ```bash
-bash install_svws_testserver_linuxinstaller.sh -v 1.3.2 -p svwsadmin
+bash install_svws_testserver.sh -v 1.3.2 -p svwsadmin
 ```
 
 Der SVWS-Server ist danach unter `https://<Server-IP>:8443` erreichbar.
 
-**Download** -> [install_svws_testserver_linuxinstaller.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/install_svws_testserver_linuxinstaller.sh)
+**Download** -> [install_svws_testserver.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/install_svws_testserver.sh)
 
 ### install_svws_testserver_fromScratch.sh
 
@@ -94,6 +94,7 @@ Das Skript:
 + klont das Repository nach `/app/SVWS-Server` und baut es mit Gradle (ohne Tests)
 + erzeugt Keystore und `svwsconfig.json` (Port `8443`)
 + richtet den systemd-Dienst `svws` ein und startet ihn
++ schreibt das MariaDB-Root-Passwort als `MARIADB_ROOT_PASSWORD` in eine `.env` neben dem Skript (nur für root lesbar). `create_svws_testdbs.sh` und `delete_all_svws_dbs.sh` lesen es von dort.
 
 **Optionen:**
 
@@ -112,9 +113,9 @@ bash install_svws_testserver_fromScratch.sh -m stable -b master -p svwsadmin
 
 Der Dienst lässt sich mit `systemctl status svws` prüfen.
 
-**Download** -> [install_svws_testserver_fromScratch.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/install_svws_testserver_fromScratch.sh)
+**Download** -> [install_svws_testserver_fromScratch.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/install_svws_testserver_fromScratch.sh)
 
-### update_testserver_from_scratch.sh
+### update_testserver_fromScratch.sh
 
 Aktualisiert einen mit `install_svws_testserver_fromScratch.sh` installierten Server: Dienst stoppen, lokale Änderungen in `/app/SVWS-Server` verwerfen, `git pull`, mit Gradle neu bauen (`clean`, `wipe`, `assemble`) und Dienst wieder starten. Der Verlauf wird in `~/svws-update.log` protokolliert.
 
@@ -123,10 +124,10 @@ Das Skript hat außer `-h` keine Parameter und eignet sich z. B. für einen näc
 **Beispiel:**
 
 ```bash
-bash update_testserver_from_scratch.sh
+bash update_testserver_fromScratch.sh
 ```
 
-**Download** -> [update_testserver_from_scratch.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/update_testserver_from_scratch.sh)
+**Download** -> [update_testserver_fromScratch.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/update_testserver_fromScratch.sh)
 
 ---
 
@@ -154,7 +155,7 @@ Installiert Apache2 mit PHP 8.4 und richtet den WeNoM unter `/var/www/html/wenom
 bash install_wenom_testserver.sh -v 1.3.3 -d wenom.meineschule.de
 ```
 
-**Download** -> [install_wenom_testserver.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/install_wenom_testserver.sh)
+**Download** -> [install_wenom_testserver.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/install_wenom_testserver.sh)
 
 ### update_wenom_testserver.sh
 
@@ -177,7 +178,7 @@ Optional kann das Secret zu Testzwecken unter `https://<Server>/secret/secret.ht
 bash update_wenom_testserver.sh -v 1.3.3 -y
 ```
 
-**Download** -> [update_wenom_testserver.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/update_wenom_testserver.sh)
+**Download** -> [update_wenom_testserver.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/update_wenom_testserver.sh)
 
 ### wenom_to_multiwenom.sh
 
@@ -208,7 +209,7 @@ bash wenom_to_multiwenom.sh -n 15 -url meineschule.de
 
 Erzeugt `wenom1.meineschule.de` bis `wenom15.meineschule.de`.
 
-**Download** -> [wenom_to_multiwenom.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/wenom_to_multiwenom.sh)
+**Download** -> [wenom_to_multiwenom.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/wenom_to_multiwenom.sh)
 
 ### install_weblupo_testserver.sh
 
@@ -230,7 +231,7 @@ bash install_weblupo_testserver.sh -v 1.3.2
 
 Die WebLuPO ist danach unter `http://<Server-IP>` erreichbar.
 
-**Download** -> [install_weblupo_testserver.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/install_weblupo_testserver.sh)
+**Download** -> [install_weblupo_testserver.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/install_weblupo_testserver.sh)
 
 ---
 
@@ -263,7 +264,7 @@ bash create_svws_testdbs.sh -u svwsadmin -p geheim
 bash create_svws_testdbs.sh -d https://github.com/SVWS-NRW/SVWS-TestMDBs/raw/refs/heads/main/Grundschule/Grundschule_JB-2025.sqlite
 ```
 
-**Download** -> [create_svws_testdbs.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/create_svws_testdbs.sh)
+**Download** -> [create_svws_testdbs.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/create_svws_testdbs.sh)
 
 ### clone_db.sh
 
@@ -296,7 +297,7 @@ Voraussetzungen:
 bash clone_db.sh -d svwsdb -n 15 -p svwsadmin
 ```
 
-**Download** -> [clone_db.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/clone_db.sh)
+**Download** -> [clone_db.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/clone_db.sh)
 
 ### delete_all_svws_dbs.sh
 
@@ -319,7 +320,7 @@ Liegt neben dem Skript eine `.env`-Datei, werden die Werte daraus übernommen (z
 bash delete_all_svws_dbs.sh -p svwsadmin
 ```
 
-**Download** -> [delete_all_svws_dbs.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/delete_all_svws_dbs.sh)
+**Download** -> [delete_all_svws_dbs.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/delete_all_svws_dbs.sh)
 
 ### generate_svws_userpasswords.sh
 
@@ -345,7 +346,7 @@ bash generate_svws_userpasswords.sh
 cat Kennwoerter.txt
 ```
 
-**Download** -> [generate_svws_userpasswords.sh](https://github.com/SVWS-NRW/Schulungsunterlagen/raw/refs/heads/master/Fachberatung_Anleitungen/Schulungsserver/Installationsskripte/generate_svws_userpasswords.sh)
+**Download** -> [generate_svws_userpasswords.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/generate_svws_userpasswords.sh)
 
 ---
 
@@ -354,7 +355,7 @@ cat Kennwoerter.txt
 **Schulungsserver mit eigener Datenbank für jeden Teilnehmer**
 
 ```bash
-bash install_svws_testserver_linuxinstaller.sh -v 1.3.2 -p svwsadmin
+bash install_svws_testserver.sh -v 1.3.2 -p svwsadmin
 bash create_svws_testdbs.sh -d <URL einer Testdatenbank>
 bash clone_db.sh -d <Schemaname> -n 15 -p svwsadmin
 ```

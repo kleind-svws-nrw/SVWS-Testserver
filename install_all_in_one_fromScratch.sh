@@ -58,12 +58,12 @@ done
 # Standardwerte
 BRANCH="dev"
 SERVERMODE="dev"
-MYSQLROOTPW=""
+MARIADB_ROOT_PASSWORD=""
 
 # Parameter mit getopts einlesen
 while getopts "p:b:m:" opt; do
   case $opt in
-    p) MYSQLROOTPW="$OPTARG" ;;
+    p) MARIADB_ROOT_PASSWORD="$OPTARG" ;;
     b) BRANCH="$OPTARG" ;;
     m) SERVERMODE="$OPTARG" ;;
     *) usage ;;
@@ -76,48 +76,91 @@ done
 echo "Verwende Branch: $BRANCH, ServerMode: $SERVERMODE"
 
 # Passwort generieren, falls nicht angegeben
-if [ -z "$MYSQLROOTPW" ]; then
-    MYSQLROOTPW=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
+if [ -z "$MARIADB_ROOT_PASSWORD" ]; then
+    MARIADB_ROOT_PASSWORD=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
     PW_WAS_GENERATED=true
 else
     PW_WAS_GENERATED=false
 fi
 
-# Arbeitsverzeichnis: Ordner, in dem dieses Skript liegt
+# Ordner, in dem dieses Skript liegt
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOWNLOAD_SCRIPT_URL="https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/download_all_scripts.sh"
-SCRIPTS_DIR="${SCRIPT_DIR}/Installationsskripte"
+
+# Skripte, die für die All-in-one-Installation benötigt werden
+REQUIRED_SCRIPTS=(
+    install_svws_testserver_fromScratch.sh
+    install_wenom_testserver.sh
+    install_weblupo_testserver.sh
+    create_svws_testdbs.sh
+    delete_all_svws_dbs.sh
+    generate_svws_userpasswords.sh
+)
 
 #############################################
-# 1. Alle Installationsskripte herunterladen
+# 1. Installationsskripte bereitstellen
 #############################################
-cd "$SCRIPT_DIR"
+# Liegen alle benötigten Skripte neben diesem Skript (Skriptordner oder
+# Git-Repository), werden sie direkt verwendet. Nur wenn etwas fehlt,
+# werden alle Skripte einmalig über download_all_scripts.sh geladen.
 
-# wget installieren, falls nicht vorhanden
-if ! command -v wget &> /dev/null; then
-    apt update && apt install -y wget
+MISSING_SCRIPTS=()
+for s in "${REQUIRED_SCRIPTS[@]}"; do
+    [ -f "${SCRIPT_DIR}/${s}" ] || MISSING_SCRIPTS+=("$s")
+done
+
+if [ ${#MISSING_SCRIPTS[@]} -eq 0 ]; then
+    SCRIPTS_DIR="$SCRIPT_DIR"
+    echo "Alle benötigten Skripte gefunden, verwende: $SCRIPTS_DIR"
+else
+    echo "Fehlende Skripte: ${MISSING_SCRIPTS[*]}"
+    echo "Lade alle Installationsskripte herunter..."
+    cd "$SCRIPT_DIR"
+
+    # wget installieren, falls nicht vorhanden
+    if ! command -v wget &> /dev/null; then
+        apt update && apt install -y wget
+    fi
+
+    # In eine temporäre Datei laden und von dort ausführen
+    DOWNLOAD_SCRIPT=$(mktemp --suffix=.sh)
+    if ! wget -q -O "$DOWNLOAD_SCRIPT" "$DOWNLOAD_SCRIPT_URL"; then
+        rm -f "$DOWNLOAD_SCRIPT"
+        echo "Fehler: download_all_scripts.sh konnte nicht von $DOWNLOAD_SCRIPT_URL geladen werden."
+        exit 1
+    fi
+
+    # lädt alle Skripte nach ./Installationsskripte
+    if ! bash "$DOWNLOAD_SCRIPT"; then
+        rm -f "$DOWNLOAD_SCRIPT"
+        echo "Fehler: download_all_scripts.sh wurde mit einem Fehler beendet."
+        exit 1
+    fi
+    rm -f "$DOWNLOAD_SCRIPT"
+
+    SCRIPTS_DIR="${SCRIPT_DIR}/Installationsskripte"
+
+    # Prüfen, ob jetzt alles da ist
+    for s in "${REQUIRED_SCRIPTS[@]}"; do
+        if [ ! -f "${SCRIPTS_DIR}/${s}" ]; then
+            echo "Fehler: $s fehlt auch nach dem Download in $SCRIPTS_DIR."
+            exit 1
+        fi
+    done
+    echo "Die Installationsskripte liegen in: $SCRIPTS_DIR"
 fi
 
-# In eine temporäre Datei laden, damit eine vorhandene download_all_scripts.sh
-# im Skriptordner (z. B. im Git-Repository) nicht überschrieben wird
-DOWNLOAD_SCRIPT=$(mktemp --suffix=.sh)
-
-echo "Lade download_all_scripts.sh herunter..."
-if ! wget -q -O "$DOWNLOAD_SCRIPT" "$DOWNLOAD_SCRIPT_URL"; then
-    rm -f "$DOWNLOAD_SCRIPT"
-    echo "Fehler: download_all_scripts.sh konnte nicht von $DOWNLOAD_SCRIPT_URL geladen werden."
+#############################################
+# 2. SVWS-Server aus dem GitHub-Branch bauen und installieren
+#############################################
+echo "Starte install_svws_testserver_fromScratch.sh (Branch: $BRANCH, ServerMode: $SERVERMODE)..."
+if ! bash "${SCRIPTS_DIR}/install_svws_testserver_fromScratch.sh" \
+        -b "$BRANCH" \
+        -m "$SERVERMODE" \
+        -p "$MARIADB_ROOT_PASSWORD"; then
+    echo "Fehler: install_svws_testserver_fromScratch.sh wurde mit einem Fehler beendet."
     exit 1
 fi
-
-# Skript ausführen: lädt alle Skripte nach ./Installationsskripte
-if ! bash "$DOWNLOAD_SCRIPT"; then
-    rm -f "$DOWNLOAD_SCRIPT"
-    echo "Fehler: download_all_scripts.sh wurde mit einem Fehler beendet."
-    exit 1
-fi
-rm -f "$DOWNLOAD_SCRIPT"
-
-echo "Die Installationsskripte liegen in: $SCRIPTS_DIR"
 
 #############################################
 # TODO: weitere Installationsschritte
@@ -130,19 +173,7 @@ echo "Die Installationsskripte liegen in: $SCRIPTS_DIR"
 echo "------------------------------------------------"
 echo "Installation abgeschlossen."
 if [ "$PW_WAS_GENERATED" = true ]; then
-    echo "WICHTIG: Das generierte MariaDB-Root-Passwort lautet: $MYSQLROOTPW"
+    echo "WICHTIG: Das generierte MariaDB-Root-Passwort lautet: $MARIADB_ROOT_PASSWORD"
 fi
 echo "------------------------------------------------"
 
-#############################################
-# Dieses Skript in das Skriptverzeichnis verschieben
-#############################################
-SELF="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")"
-
-if [ -d "${SCRIPT_DIR}/.git" ]; then
-    # Schutz: im Git-Repository nicht verschieben, sonst fehlt die Datei dort
-    echo "Hinweis: $(basename "$SELF") liegt in einem Git-Repository und wird nicht verschoben."
-elif [ "$SCRIPT_DIR" != "$SCRIPTS_DIR" ] && [ -d "$SCRIPTS_DIR" ]; then
-    mv -f "$SELF" "${SCRIPTS_DIR}/"
-    echo "$(basename "$SELF") wurde nach $SCRIPTS_DIR verschoben."
-fi

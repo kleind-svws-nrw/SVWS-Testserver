@@ -35,6 +35,8 @@ Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>
 
 Baut den SVWS-Server aus einem GitHub-Branch nach /app/SVWS-Server
 und richtet ihn als systemd-Dienst svws ein (Port 8443).
+Das MariaDB-Root-Passwort wird in die Datei .env neben diesem Skript
+geschrieben (MARIADB_ROOT_PASSWORD=...).
 
 Optionen:
   -m  ServerMode, z. B. dev, alpha, beta, stable (optional, Standard: dev)
@@ -55,14 +57,19 @@ for arg in "$@"; do
     fi
 done
 
+# Ordner dieses Skripts (hier wird die .env abgelegt)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/.env"
+
 # Standardwerte
 BRANCH="dev"
 SERVERMODE="dev"
+MARIADB_ROOT_PASSWORD=""
 
 # Parameter mit getopts einlesen
 while getopts "p:b:m:" opt; do
   case $opt in
-    p) MYSQLROOTPW="$OPTARG" ;;
+    p) MARIADB_ROOT_PASSWORD="$OPTARG" ;;
     b) BRANCH="$OPTARG" ;;
     m) SERVERMODE="$OPTARG" ;;
     *) usage ;;
@@ -75,9 +82,8 @@ done
 echo "Verwende Branch: $BRANCH, ServerMode: $SERVERMODE"
 
 # Passwort generieren, falls nicht angegeben
-if [ -z "$MYSQLROOTPW" ]; then
-    GENERATED_PW=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
-    MYSQLROOTPW="$GENERATED_PW"
+if [ -z "$MARIADB_ROOT_PASSWORD" ]; then
+    MARIADB_ROOT_PASSWORD=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
     PW_WAS_GENERATED=true
 else
     PW_WAS_GENERATED=false
@@ -108,7 +114,7 @@ apt install -y ${TEMURINVERSION}
 
 # MariaDB Server konfigurieren
 echo "
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQLROOTPW}';
+ALTER USER 'root'@'localhost' IDENTIFIED BY '${MARIADB_ROOT_PASSWORD}';
 DELETE FROM mysql.user WHERE User='';
 DROP DATABASE IF EXISTS test;
 DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
@@ -116,6 +122,15 @@ FLUSH PRIVILEGES;
 " > mysql_secure_installation.sql
 mysql < mysql_secure_installation.sql
 rm mysql_secure_installation.sql
+
+# MariaDB-Root-Passwort in die .env schreiben (wird z. B. von
+# create_svws_testdbs.sh und delete_all_svws_dbs.sh ausgelesen).
+# Eine vorhandene .env bleibt erhalten, nur die Passwortzeile wird ersetzt.
+touch "$ENV_FILE"
+grep -v '^MARIADB_ROOT_PASSWORD=' "$ENV_FILE" > "${ENV_FILE}.tmp" || true
+echo "MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}" >> "${ENV_FILE}.tmp"
+mv "${ENV_FILE}.tmp" "$ENV_FILE"
+chmod 600 "$ENV_FILE"
 
 # user svws einrichten
 if ! id "svws" &>/dev/null; then
@@ -180,6 +195,8 @@ systemctl start svws
 echo "------------------------------------------------"
 echo "Installation abgeschlossen."
 if [ "$PW_WAS_GENERATED" = true ]; then
-    echo "WICHTIG: Das generierte MariaDB-Root-Passwort lautet: $MYSQLROOTPW"
+    echo "WICHTIG: Das generierte MariaDB-Root-Passwort lautet: $MARIADB_ROOT_PASSWORD"
 fi
+echo "Das MariaDB-Root-Passwort wurde gespeichert in: $ENV_FILE"
+echo "  (Eintrag: MARIADB_ROOT_PASSWORD, nur für root lesbar)"
 echo "------------------------------------------------"

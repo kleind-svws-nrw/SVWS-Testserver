@@ -58,14 +58,14 @@ done
 # Konfiguration
 DB_NAME=""
 COUNT=0
-PASS=""
+MARIADB_ROOT_PASSWORD=""
 
 # Parameter verarbeiten (nur -d, -n, -p)
 while getopts "d:n:p:" opt; do
     case $opt in
         d) DB_NAME="$OPTARG" ;;
         n) COUNT="$OPTARG" ;;
-        p) PASS="$OPTARG" ;;
+        p) MARIADB_ROOT_PASSWORD="$OPTARG" ;;
         *) usage ;;
     esac
 done
@@ -76,13 +76,13 @@ if [[ -z "$DB_NAME" ]] || ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [[ "$COUNT" -le 0 ]]; 
 fi
 
 # Passwort ermitteln (Priorität: Parameter -> .env Datei)
-if [[ -z "$PASS" ]]; then
+if [[ -z "$MARIADB_ROOT_PASSWORD" ]]; then
     if [[ -f .env ]]; then
-        PASS=$(grep '^MARIADB_ROOT_PASSWORD=' .env | cut -d '=' -f2 | tr -d '"' | tr -d "'")
+        MARIADB_ROOT_PASSWORD=$(grep '^MARIADB_ROOT_PASSWORD=' .env | cut -d '=' -f2 | tr -d '"' | tr -d "'")
     fi
 fi
 
-if [[ -z "$PASS" ]]; then
+if [[ -z "$MARIADB_ROOT_PASSWORD" ]]; then
     echo "Fehler: Kein MariaDB-Passwort gefunden (weder über -p noch in .env)."
     exit 1
 fi
@@ -113,7 +113,7 @@ else
     echo "Info: Konfiguration gefunden unter: $CONFIG_FILE"
 fi
 
-export MYSQL_PWD="$PASS"
+export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"
 
 # 1. Quelldaten aus JSON extrahieren
 if [[ ! -f "$CONFIG_FILE" ]]; then
