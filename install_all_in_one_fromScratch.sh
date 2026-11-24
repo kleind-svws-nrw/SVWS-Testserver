@@ -450,6 +450,7 @@ fi
 ########################################################
 # 10. Benutzerkennwörter in allen Testdatenbanken setzen
 ########################################################
+
 # Ein gemeinsames neues Admin-Kennwort (12 bis 16 Zeichen) für alle Datenbanken
 ADMIN_PW_LENGTH=$(( 12 + RANDOM % 5 ))
 NEW_ADMIN_PW=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c "$ADMIN_PW_LENGTH")
