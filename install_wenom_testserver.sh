@@ -28,6 +28,33 @@
 # SOFTWARE.
 ##############################################################################
 
+# --- Hilfe ---
+usage() {
+    cat <<EOF
+Verwendung: bash $(basename "$0") -v <Version> [-d <Domain>]
+
+Installiert Apache2 mit PHP und richtet den WeNoM unter /var/www/html/wenom ein.
+Nur HTTPS auf Port 443 mit selbstsigniertem Zertifikat, Port 80 wird abgeschaltet.
+Am Ende wird das Client-Secret angezeigt.
+
+Optionen:
+  -v  Version des SVWS-Servers, z. B. 1.3.3 (Pflicht)
+  -d  Domainname für Zertifikat und VirtualHost (optional, sonst nur die IP)
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0") -v 1.3.3 -d wenom.meineschule.de
+EOF
+    exit "${1:-1}"
+}
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
 DOMAIN=""
 PHPVERSION=8.4
 INSTALLPATH=/var/www/html/wenom
@@ -37,8 +64,7 @@ while getopts "v:d:" opt; do
   case $opt in
     v) SVWSVERSION=$OPTARG ;;
     d) DOMAIN=$OPTARG ;;
-    *) echo "Benutzung: $0 -v [SVWS-Version] -d [Domainname]" >&2
-       exit 1 ;;
+    *) usage ;;
   esac
 done
 
@@ -93,14 +119,12 @@ echo "
 </Directory>" >> /etc/apache2/apache2.conf
 fi
 
-### Apache Umleitung von Port 80 auf 443 (HTTPS)
-# Überschreiben der 000-default.conf für die Umleitung
-echo "<VirtualHost *:80>
-    ServerName ${DOMAIN}
-    RewriteEngine On
-    RewriteCond %{HTTPS} off
-    RewriteRule ^(.*)\$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-</VirtualHost>" > /etc/apache2/sites-available/000-default.conf
+### Port 80 komplett abschalten - WeNoM läuft nur über HTTPS (Port 443)
+# "Listen 80" in der ports.conf mit # auskommentieren
+sed -i -E 's/^([[:space:]]*Listen[[:space:]]+80)[[:space:]]*$/#\1/' /etc/apache2/ports.conf
+# Standard-Site 000-default löschen (Link in sites-enabled und Datei in sites-available)
+rm -f /etc/apache2/sites-enabled/000-default.conf
+rm -f /etc/apache2/sites-available/000-default.conf
 
 ### SSL VHost konfigurieren
 a2ensite default-ssl.conf

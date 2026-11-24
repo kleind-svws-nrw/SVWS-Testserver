@@ -28,6 +28,30 @@
 # SOFTWARE.
 ##############################################################################
 
+# --- Hilfe ---
+usage() {
+    cat <<EOF
+Verwendung: bash $(basename "$0")
+
+Aktualisiert einen aus GitHub gebauten SVWS-Server in /app/SVWS-Server
+(git pull, Neubau mit Gradle, Neustart des Dienstes svws). Log: ~/svws-update.log
+
+Optionen:
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0")
+EOF
+    exit "${1:-1}"
+}
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
 # Configuration
 APP_DIR="/app/SVWS-Server"
 LOG_FILE="$HOME/svws-update.log"

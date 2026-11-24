@@ -14,6 +14,7 @@ Diese Sammlung enthält Bash-Skripte, mit denen sich Test- und Schulungsserver r
 + Alle Skripte sind mit **Debian 13** getestet und laufen auf einer einfachen Basisinstallation durch.
 + Die Skripte werden als **root** ausgeführt (sie installieren Pakete, legen Dienste an und ändern Systemeinstellungen).
 + Die Installationsskripte setzen die Systemsprache auf `de_DE.UTF-8` und die Zeitzone auf `Europe/Berlin` und führen ein vollständiges `apt upgrade` aus.
++ Jedes Skript zeigt mit `-h` (oder `--help`) eine Hilfe mit allen Optionen und einem Beispiel an, ohne am System etwas zu verändern.
 + Versionsnummern werden ohne führendes `v` angegeben, also z. B. `1.3.2`. Die passenden Versionen stehen unter [SVWS-Server Releases](https://github.com/SVWS-NRW/SVWS-Server/releases).
 
 ## Übersicht
@@ -27,7 +28,7 @@ Diese Sammlung enthält Bash-Skripte, mit denen sich Test- und Schulungsserver r
 | [install_wenom_testserver.sh](#install_wenom_testserversh) | WeNoM unter Apache2 einrichten |
 | [update_wenom_testserver.sh](#update_wenom_testserversh) | WeNoM neu einspielen |
 | [wenom_to_multiwenom.sh](#wenom_to_multiwenomsh) | Mehrere WeNoM-Instanzen über eigene Subdomains |
-| [install_weblupo_testserver.sh](#install_weblupo_testserversh) | WebLuPO unter Apache2 einrichten |
+| [install_weblupo_testserver.sh](#install_weblupo_testserversh) | WebLuPO unter nginx einrichten |
 | [create_svws_testdbs.sh](#create_svws_testdbssh) | Test-Datenbanken (SQLite) in den SVWS-Server importieren |
 | [clone_db.sh](#clone_dbsh) | Eine Datenbank n-mal klonen |
 | [delete_all_svws_dbs.sh](#delete_all_svws_dbssh) | Alle Datenbanken des SVWS-Servers löschen |
@@ -98,14 +99,15 @@ Das Skript:
 
 | Parameter | Info |
 |-|-|
-| -b | Pflicht: Git-Branch, z. B. `dev` |
-| -m | Pflicht: ServerMode, der in die `svwsconfig.json` eingetragen wird |
+| -m | Optional: ServerMode, der in die `svwsconfig.json` eingetragen wird, z. B. `stable`. Ohne Angabe wird `dev` verwendet. |
+| -b | Optional: Git-Branch, z. B. `master`. Ohne Angabe wird `dev` verwendet. |
 | -p | Optional: Passwort für MariaDB-Root. Ohne Angabe wird ein Passwort erzeugt und am Ende angezeigt. |
 
 **Beispiel:**
 
 ```bash
-bash install_svws_testserver_fromScratch.sh -b dev -m dev -p svwsadmin
+bash install_svws_testserver_fromScratch.sh -p svwsadmin                    # Branch und ServerMode dev (Standard)
+bash install_svws_testserver_fromScratch.sh -m stable -b master -p svwsadmin
 ```
 
 Der Dienst lässt sich mit `systemctl status svws` prüfen.
@@ -116,7 +118,7 @@ Der Dienst lässt sich mit `systemctl status svws` prüfen.
 
 Aktualisiert einen mit `install_svws_testserver_fromScratch.sh` installierten Server: Dienst stoppen, lokale Änderungen in `/app/SVWS-Server` verwerfen, `git pull`, mit Gradle neu bauen (`clean`, `wipe`, `assemble`) und Dienst wieder starten. Der Verlauf wird in `~/svws-update.log` protokolliert.
 
-Das Skript hat keine Parameter und eignet sich z. B. für einen nächtlichen Cronjob.
+Das Skript hat außer `-h` keine Parameter und eignet sich z. B. für einen nächtlichen Cronjob.
 
 **Beispiel:**
 
@@ -134,7 +136,7 @@ bash update_testserver_from_scratch.sh
 
 Installiert Apache2 mit PHP 8.4 und richtet den WeNoM unter `/var/www/html/wenom` ein:
 
-+ HTTP (Port 80) wird auf HTTPS (Port 443) umgeleitet
++ Apache lauscht nur auf HTTPS (Port 443): `Listen 80` wird in der `/etc/apache2/ports.conf` auskommentiert und die Standard-Site `000-default` gelöscht. Port 80 ist damit frei, z. B. für einen anderen Webserver.
 + ein selbstsigniertes Zertifikat (10 Jahre gültig) wird erzeugt, mit Domain und IP oder nur mit der IP
 + `mod_security2` wird aktiviert
 + zum Schluss wird das Client-Secret für die Synchronisation mit dem SVWS-Server erzeugt und angezeigt
@@ -210,7 +212,9 @@ Erzeugt `wenom1.meineschule.de` bis `wenom15.meineschule.de`.
 
 ### install_weblupo_testserver.sh
 
-Installiert Apache2 und entpackt die WebLuPO (Laufbahnplanung) der angegebenen Version direkt nach `/var/www/html`.
+Installiert nginx und richtet die WebLuPO (Laufbahnplanung) der angegebenen Version unter `/var/www/html/weblupo` ein. nginx liefert sie als Standard-Site auf Port 80 aus; die mitgelieferte nginx-Standard-Site wird dabei entfernt.
+
+Ist Port 80 bereits durch einen anderen Dienst belegt, bricht das Skript mit einem Hinweis ab. Zusammen mit `install_wenom_testserver.sh` auf einem Server funktioniert es, weil Apache dort nur auf Port 443 lauscht.
 
 **Optionen:**
 
@@ -321,7 +325,7 @@ bash delete_all_svws_dbs.sh -p svwsadmin
 
 Setzt für alle Benutzer einer SVWS-Datenbank außer `Admin` ein zufälliges Kennwort und schreibt die Liste `Benutzer | Passwort` in die Datei `Kennwoerter.txt`. Das ist praktisch, um Schulungsteilnehmern eigene Zugänge zu geben.
 
-Das Skript hat keine Parameter. Die Werte werden vor dem Aufruf oben im Skript eingetragen:
+Das Skript hat außer `-h` keine Parameter. Die Werte werden vor dem Aufruf oben im Skript eingetragen:
 
 | Variable | Info |
 |-|-|

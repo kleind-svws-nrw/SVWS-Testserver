@@ -28,6 +28,34 @@
 # SOFTWARE.
 ##############################################################################
 
+# --- Hilfe ---
+usage() {
+    cat <<EOF
+Verwendung: bash $(basename "$0") [-u <Benutzer>] [-p <Passwort>] [-d <URL>]
+
+Importiert SQLite-Testdatenbanken in den SVWS-Server (https://localhost:8443).
+Ohne -d werden alle .sqlite-Dateien aus github.com/SVWS-NRW/SVWS-TestSqlites importiert.
+Das MariaDB-Root-Passwort wird aus der .env neben dem Skript gelesen.
+
+Optionen:
+  -u  Benutzername für die neuen Schemata (Standard: svwsadmin)
+  -p  Passwort dieses Benutzers (Standard: svwsadmin)
+  -d  URL einer einzelnen .sqlite-Datei
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0") -u svwsadmin -p geheim
+EOF
+    exit "${1:-1}"
+}
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
 # Abbrechen, wenn ein Befehl mit Fehler beendet wird
 set -e
 
@@ -68,7 +96,7 @@ while getopts "u:p:d:" opt; do
     u) USERNAME="$OPTARG" ;;
     p) PASSWORD="$OPTARG" ;;
     d) DOWNLOAD_URL="$OPTARG" ;;
-    \?) echo "Ungültige Option: -$OPTARG" >&2; exit 1 ;;
+    *) usage ;;
   esac
 done
 

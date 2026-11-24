@@ -28,14 +28,36 @@
 # SOFTWARE.
 ##############################################################################
 
-# Hilfe-Funktion
+# --- Hilfe ---
 usage() {
-  echo "Usage: $0 [-p <mysql_root_pw>] -b <branch> -m <servermode>"
-  echo "  -p    Passwort für den MariaDB Root-User (optional, sonst Zufallsgenerierung)"
-  echo "  -b    Git Branch (z.B. dev oder master)"
-  echo "  -m    Server Mode (z.B. develop oder production)"
-  exit 1
+    cat <<EOF
+Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>]
+
+Baut den SVWS-Server aus einem GitHub-Branch nach /app/SVWS-Server
+und richtet ihn als systemd-Dienst svws ein (Port 8443).
+
+Optionen:
+  -m  ServerMode, z. B. dev, alpha, beta, stable (optional, Standard: dev)
+  -b  Git-Branch, z. B. dev oder master (optional, Standard: dev)
+  -p  Passwort für den MariaDB-Root-User (optional, sonst Zufallsgenerierung)
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0") -p svwsadmin
+EOF
+    exit "${1:-1}"
 }
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
+# Standardwerte
+BRANCH="dev"
+SERVERMODE="dev"
 
 # Parameter mit getopts einlesen
 while getopts "p:b:m:" opt; do
@@ -47,11 +69,10 @@ while getopts "p:b:m:" opt; do
   esac
 done
 
-# Prüfen, ob Pflicht-Variablen gesetzt sind
-if [ -z "$BRANCH" ] || [ -z "$SERVERMODE" ]; then
-  echo "Fehler: Die Parameter -b (Branch) und -m (Mode) sind Pflicht."
-  usage
-fi
+# Fallback, falls -b oder -m mit leerem Wert übergeben wurden
+[ -z "$BRANCH" ] && BRANCH="dev"
+[ -z "$SERVERMODE" ] && SERVERMODE="dev"
+echo "Verwende Branch: $BRANCH, ServerMode: $SERVERMODE"
 
 # Passwort generieren, falls nicht angegeben
 if [ -z "$MYSQLROOTPW" ]; then

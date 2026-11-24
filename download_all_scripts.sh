@@ -28,11 +28,37 @@
 # SOFTWARE.
 ##############################################################################
 
+# --- Hilfe ---
+usage() {
+    cat <<EOF
+Verwendung: bash $(basename "$0")
+
+Lädt alle Skripte aus github.com/kleind-svws-nrw/SVWS-Testserver (Branch main)
+in den Unterordner ./Installationsskripte herunter.
+Vorher werden das System aktualisiert und curl sowie jq installiert.
+
+Optionen:
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0")
+EOF
+    exit "${1:-1}"
+}
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
 set -e
 
-OWNER="SVWS-NRW"
-REPO="Schulungsunterlagen"
-PATH_IN_REPO="Fachberatung_Anleitungen/Schulungsserver/Installationsskripte"
+OWNER="kleind-svws-nrw"
+REPO="SVWS-Testserver"
+PATH_IN_REPO=""        # leer = Hauptverzeichnis des Repositorys
+BRANCH="main"          # nur stabile Stände
 
 apt update && apt upgrade -y && apt autoremove -y
 apt install curl jq -y
@@ -40,7 +66,9 @@ apt install curl jq -y
 mkdir -p Installationsskripte
 cd Installationsskripte
 
-API_URL="https://api.github.com/repos/${OWNER}/${REPO}/contents/${PATH_IN_REPO}"
+API_URL="https://api.github.com/repos/${OWNER}/${REPO}/contents"
+[ -n "$PATH_IN_REPO" ] && API_URL="${API_URL}/${PATH_IN_REPO}"
+API_URL="${API_URL}?ref=${BRANCH}"
 
 echo "Lade Dateiliste..."
 curl -s "$API_URL" | jq -r '.[] | select(.type=="file") | .download_url' | while read -r url

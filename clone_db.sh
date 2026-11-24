@@ -28,6 +28,65 @@
 # SOFTWARE.
 ##############################################################################
 
+# --- Hilfe ---
+usage() {
+    cat <<EOF
+Verwendung: bash $(basename "$0") -d <Datenbank> -n <Anzahl> [-p <Passwort>]
+
+Klont eine Datenbank des SVWS-Servers n-mal (<Datenbank>_1 bis <Datenbank>_n),
+trägt die Klone in die svwsconfig.json ein und startet den Dienst svws neu.
+
+Optionen:
+  -d  Name der vorhandenen Datenbank (Pflicht)
+  -n  Anzahl der Klone (Pflicht)
+  -p  MariaDB-Root-Passwort (optional, sonst aus .env im aktuellen Verzeichnis)
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0") -d svwsdb -n 15 -p svwsadmin
+EOF
+    exit "${1:-1}"
+}
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
+# Konfiguration
+DB_NAME=""
+COUNT=0
+PASS=""
+
+# Parameter verarbeiten (nur -d, -n, -p)
+while getopts "d:n:p:" opt; do
+    case $opt in
+        d) DB_NAME="$OPTARG" ;;
+        n) COUNT="$OPTARG" ;;
+        p) PASS="$OPTARG" ;;
+        *) usage ;;
+    esac
+done
+
+# Validierung
+if [[ -z "$DB_NAME" ]] || ! [[ "$COUNT" =~ ^[0-9]+$ ]] || [[ "$COUNT" -le 0 ]]; then
+    usage
+fi
+
+# Passwort ermitteln (Priorität: Parameter -> .env Datei)
+if [[ -z "$PASS" ]]; then
+    if [[ -f .env ]]; then
+        PASS=$(grep '^MARIADB_ROOT_PASSWORD=' .env | cut -d '=' -f2 | tr -d '"' | tr -d "'")
+    fi
+fi
+
+if [[ -z "$PASS" ]]; then
+    echo "Fehler: Kein MariaDB-Passwort gefunden (weder über -p noch in .env)."
+    exit 1
+fi
+
 # --- Dynamische Konfiguration ---
 # Liste möglicher Pfade für die svwsconfig.json
 POSSIBLE_PATHS=(
@@ -52,43 +111,6 @@ if [[ -z "$CONFIG_FILE" ]]; then
     exit 1
 else
     echo "Info: Konfiguration gefunden unter: $CONFIG_FILE"
-fi
-
-# Konfiguration
-DB_NAME=""
-COUNT=0
-PASS=""
-
-usage() {
-    echo "Usage: $0 -d <SCHEMATA_NAME> -n <ANZAHL> [-p <PASSWORD>]"
-    exit 1
-}
-
-# Parameter verarbeiten (nur -d, -n, -p)
-while getopts "d:n:p:" opt; do
-    case $opt in
-        d) DB_NAME="$OPTARG" ;;
-        n) COUNT="$OPTARG" ;;
-        p) PASS="$OPTARG" ;;
-        *) usage ;;
-    esac
-done
-
-# Validierung
-if [[ -z "$DB_NAME" || $COUNT -le 0 ]]; then
-    usage
-fi
-
-# Passwort ermitteln (Priorität: Parameter -> .env Datei)
-if [[ -z "$PASS" ]]; then
-    if [[ -f .env ]]; then
-        PASS=$(grep '^MARIADB_ROOT_PASSWORD=' .env | cut -d '=' -f2 | tr -d '"' | tr -d "'")
-    fi
-fi
-
-if [[ -z "$PASS" ]]; then
-    echo "Fehler: Kein MariaDB-Passwort gefunden (weder über -p noch in .env)."
-    exit 1
 fi
 
 export MYSQL_PWD="$PASS"

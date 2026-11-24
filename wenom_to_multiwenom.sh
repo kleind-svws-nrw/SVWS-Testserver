@@ -28,6 +28,32 @@
 # SOFTWARE.
 ##############################################################################
 
+# --- Hilfe ---
+usage() {
+    cat <<EOF
+Verwendung: bash $(basename "$0") -n <Anzahl> -url <Domain>
+
+Erzeugt mehrere WeNoM-Instanzen mit eigenem Datenbankordner und
+Apache-VirtualHost wenom<i>.<Domain>.
+
+Optionen:
+  -n    Anzahl der Instanzen (Pflicht)
+  -url  Domain, der wenom<i>. vorangestellt wird (Pflicht)
+  -h  Diese Hilfe anzeigen
+
+Beispiel:
+  bash $(basename "$0") -n 15 -url meineschule.de
+EOF
+    exit "${1:-1}"
+}
+
+# -h / --help auswerten, bevor am System etwas verändert wird
+for arg in "$@"; do
+    if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        usage 0
+    fi
+done
+
 # =========================
 # KONFIGURATION
 # =========================
@@ -44,11 +70,6 @@ SSL_KEY="/etc/ssl/private/wenomtest-selfsigned.key"
 COUNT=""
 URL=""
 
-usage() {
-    echo "Verwendung: $0 -n <Anzahl> -url <Domain>"
-    echo "Beispiel: $0 -n 15 -url schule.de"
-    exit 1
-}
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
