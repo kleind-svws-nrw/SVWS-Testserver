@@ -218,7 +218,7 @@ Erzeugt `wenom1.meineschule.de` bis `wenom15.meineschule.de`.
 
 ### install_weblupo_testserver.sh
 
-Installiert nginx und richtet die WebLuPO (Laufbahnplanung) der angegebenen Version unter `/var/www/html/weblupo` ein. nginx liefert sie als Standard-Site auf Port 80 aus; die mitgelieferte nginx-Standard-Site wird dabei entfernt.
+Installiert nginx und richtet die WebLuPO (Laufbahnplanung) der angegebenen Version unter `/var/www/html/weblupo` ein. nginx bleibt in der Standardkonfiguration (Port 80, Wurzelverzeichnis `/var/www/html`), die WebLuPO ist damit unter `http://<Server-IP>/weblupo/` erreichbar.
 
 Ist Port 80 bereits durch einen anderen Dienst belegt, bricht das Skript mit einem Hinweis ab. Zusammen mit `install_wenom_testserver.sh` auf einem Server funktioniert es, weil Apache dort nur auf Port 443 lauscht.
 
@@ -234,13 +234,13 @@ Ist Port 80 bereits durch einen anderen Dienst belegt, bricht das Skript mit ein
 bash install_weblupo_testserver.sh -v 1.3.2
 ```
 
-Die WebLuPO ist danach unter `http://<Server-IP>` erreichbar.
+Die WebLuPO ist danach unter `http://<Server-IP>/weblupo/` erreichbar.
 
 **Download** -> [install_weblupo_testserver.sh](https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs/heads/main/install_weblupo_testserver.sh)
 
 ### update_weblupo_testserver.sh
 
-Lädt die WebLuPO der angegebenen Version herunter und entpackt sie nach `/var/www/html/weblupo`. Eine vorhandene Installation wird **ohne Rückfrage** überschrieben; die WebLuPO speichert keine Daten auf dem Server, deshalb geht dabei nichts verloren. Die nginx-Konfiguration aus `install_weblupo_testserver.sh` bleibt unverändert.
+Lädt die WebLuPO der angegebenen Version herunter und entpackt sie nach `/var/www/html/weblupo`. Eine vorhandene Installation wird **ohne Rückfrage** überschrieben; die WebLuPO speichert keine Daten auf dem Server, deshalb geht dabei nichts verloren. Die nginx-Konfiguration bleibt unverändert, die WebLuPO ist weiter unter `http://<Server-IP>/weblupo/` erreichbar.
 
 Die alte Installation wird erst nach einem erfolgreichen Download ersetzt. Schlägt der Download fehl, z. B. wegen einer falschen Versionsnummer, bleibt die bisherige WebLuPO erhalten.
 
@@ -271,12 +271,14 @@ Importiert SQLite-Testdatenbanken über die API in einen laufenden SVWS-Server (
 
 Das MariaDB-Root-Passwort wird aus der Zeile `MARIADB_ROOT_PASSWORD=` einer `.env`-Datei im selben Ordner wie das Skript gelesen. Diese Datei muss vorhanden sein.
 
+Vor dem Import prüft das Skript, ob es den Schema-Benutzer in MariaDB schon gibt. Existiert er bereits, muss sein Passwort mit `-p` angegeben werden; sonst bricht das Skript ab, weil ein neu erzeugtes Passwort nicht zum vorhandenen Benutzer passen würde.
+
 **Optionen:**
 
 | Parameter | Info |
 |-|-|
 | -u | Optional: Benutzername für die neuen Schemata, Standard `svwsadmin` |
-| -p | Optional: Passwort dieses Benutzers, Standard `svwsadmin` |
+| -p | Optional: Passwort dieses Benutzers. Ohne Angabe wird ein zufälliges Passwort erzeugt und am Ende angezeigt. |
 | -d | Optional: URL einer einzelnen `.sqlite`-Datei |
 
 **Beispiele:**
@@ -351,7 +353,7 @@ bash delete_all_svws_dbs.sh -p svwsadmin
 
 Setzt für alle Benutzer einer SVWS-Datenbank außer `Admin` ein zufälliges Kennwort und schreibt die Liste `Benutzer | Passwort` in die Datei `Kennwoerter.txt`. Das ist praktisch, um Schulungsteilnehmern eigene Zugänge zu geben.
 
-Das Skript hat außer `-h` keine Parameter. Die Werte werden vor dem Aufruf oben im Skript eingetragen:
+Die Werte werden vor dem Aufruf oben im Skript eingetragen oder als Umgebungsvariablen übergeben (so ruft das All-in-one-Skript es auf):
 
 | Variable | Info |
 |-|-|
@@ -360,14 +362,18 @@ Das Skript hat außer `-h` keine Parameter. Die Werte werden vor dem Aufruf oben
 | SCHEMA_NAME | Name der Datenbank |
 | MARIADB_ROOT_PASSWORD | MariaDB-Root-Passwort (zum Auslesen der Benutzer) |
 | SVWS_ADMIN | Benutzer mit Adminrechten in der Datenbank |
-| SVWS_ADMIN_PW | Kennwort dieses Benutzers |
+| SVWS_ADMIN_PW | Kennwort dieses Benutzers (darf leer sein, z. B. bei `Admin` ohne Kennwort) |
+| OUTPUT_FILE | Ausgabedatei, Standard `Kennwoerter.txt` |
+
+Mit `-np <Kennwort>` bekommt zusätzlich der Benutzer `Admin` das angegebene neue Kennwort. Es wird zum Schluss gesetzt, nachdem alle anderen Benutzer ihr Kennwort erhalten haben, und ebenfalls in `Kennwoerter.txt` eingetragen.
 
 Voraussetzung ist ein MariaDB/MySQL-Client auf dem Server.
 
 **Beispiel:**
 
 ```bash
-bash generate_svws_userpasswords.sh
+bash generate_svws_userpasswords.sh                       # Admin-Kennwort bleibt unverändert
+bash generate_svws_userpasswords.sh -np NeuesAdminKennwort   # Admin bekommt ein neues Kennwort
 cat Kennwoerter.txt
 ```
 

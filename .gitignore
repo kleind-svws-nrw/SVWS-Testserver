@@ -2,6 +2,7 @@
 .env
 .env.tmp
 Kennwoerter.txt
+Kennwoerter/
 
 # Von den Skripten bei Testläufen erzeugte Dateien und Ordner
 Installationsskripte/

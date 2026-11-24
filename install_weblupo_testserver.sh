@@ -33,8 +33,9 @@ usage() {
     cat <<EOF
 Verwendung: bash $(basename "$0") -v <Version>
 
-Installiert nginx und richtet die WebLuPO unter /var/www/html/weblupo ein.
-nginx liefert sie als Standard-Site auf Port 80 aus (http://<Server-IP>).
+Installiert nginx in der Standardkonfiguration (Port 80, Wurzel /var/www/html)
+und richtet die WebLuPO unter /var/www/html/weblupo ein
+(erreichbar unter http://<Server-IP>/weblupo/).
 
 Optionen:
   -v  Version des SVWS-Servers, z. B. 1.3.2 (Pflicht)
@@ -54,7 +55,6 @@ for arg in "$@"; do
 done
 
 INSTALLPATH=/var/www/html/weblupo
-NGINX_SITE=/etc/nginx/sites-available/weblupo
 
 # Parameter-Abfrage mit getopts
 while getopts "v:" opt; do
@@ -105,26 +105,6 @@ unzip -o "$TMPZIP" -d "$INSTALLPATH"
 rm -f "$TMPZIP"
 chown -R www-data:www-data "$INSTALLPATH"
 
-### nginx-Site für die WebLuPO auf Port 80 als Standard-Site einrichten
-cat <<'EOF' > "$NGINX_SITE"
-server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    server_name _;
-
-    root /var/www/html/weblupo;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-}
-EOF
-
-# mitgelieferte Standard-Site von nginx entfernen und WebLuPO-Site aktivieren
-rm -f /etc/nginx/sites-enabled/default
-ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/weblupo
-
 # Konfiguration testen und nginx (neu) starten
 nginx -t
 systemctl enable nginx
@@ -132,4 +112,4 @@ systemctl restart nginx
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo -e "\n\n################# Installation WebLuPo beendet! ####################\n"
-echo "Die WebLuPO ist erreichbar unter: http://${SERVER_IP}"
+echo "Die WebLuPO ist erreichbar unter: http://${SERVER_IP}/weblupo/"

@@ -39,7 +39,7 @@ Das MariaDB-Root-Passwort wird aus der .env neben dem Skript gelesen.
 
 Optionen:
   -u  Benutzername für die neuen Schemata (Standard: svwsadmin)
-  -p  Passwort dieses Benutzers (Standard: svwsadmin)
+  -p  Passwort dieses Benutzers (optional, sonst wird eins erzeugt und am Ende angezeigt)
   -d  URL einer einzelnen .sqlite-Datei
   -h  Diese Hilfe anzeigen
 
@@ -86,7 +86,7 @@ fi
 REPO_URL="https://github.com/SVWS-NRW/SVWS-TestSqlites"
 FOLDER_NAME="SVWS-TestSqlites"
 USERNAME="svwsadmin"
-PASSWORD="svwsadmin"
+PASSWORD=""
 API_URL="https://localhost:8443/api/schema/root/import/sqlite/"
 DOWNLOAD_URL=""
 
@@ -99,6 +99,39 @@ while getopts "u:p:d:" opt; do
     *) usage ;;
   esac
 done
+
+# Prüfen, ob es den Schema-Benutzer in MariaDB schon gibt
+USER_EXISTS=false
+if command -v mysql &> /dev/null; then
+    USER_COUNT=$(MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mysql -u root -N -B \
+        -e "SELECT COUNT(*) FROM mysql.user WHERE User='${USERNAME//\'/\'\'}';" 2>/dev/null || echo "")
+    if [ -z "$USER_COUNT" ]; then
+        echo "Hinweis: Die Benutzer in MariaDB konnten nicht geprüft werden."
+    elif [ "$USER_COUNT" -gt 0 ]; then
+        USER_EXISTS=true
+        echo "✓ Der Datenbankbenutzer '$USERNAME' existiert bereits."
+    else
+        echo "✓ Der Datenbankbenutzer '$USERNAME' existiert noch nicht und wird angelegt."
+    fi
+else
+    echo "Hinweis: Kein mariadb-Client gefunden, die Prüfung auf vorhandene Benutzer entfällt."
+fi
+
+# Vorhandener Benutzer ohne -p: ein neues Zufallspasswort würde nicht zum
+# bestehenden Passwort passen, daher abbrechen
+if [ "$USER_EXISTS" = true ] && [ -z "$PASSWORD" ]; then
+    echo "Fehler: Den Benutzer '$USERNAME' gibt es bereits."
+    echo "Bitte sein vorhandenes Passwort mit -p angeben oder mit -u einen anderen Benutzer wählen."
+    exit 1
+fi
+
+# Passwort generieren, falls nicht mit -p angegeben
+if [ -z "$PASSWORD" ]; then
+    PASSWORD=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
+    PW_WAS_GENERATED=true
+else
+    PW_WAS_GENERATED=false
+fi
 
 echo "Schema-Benutzer: $USERNAME"
 
@@ -195,3 +228,7 @@ for file in "${sqlite_files[@]}"; do
 done
 
 echo "=== Fertig! ==="
+echo "Schema-Benutzer für die importierten Datenbanken: $USERNAME"
+if [ "$PW_WAS_GENERATED" = true ]; then
+    echo "WICHTIG: Das generierte Passwort für '$USERNAME' lautet: $PASSWORD"
+fi

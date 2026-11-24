@@ -31,18 +31,22 @@
 # --- Hilfe ---
 usage() {
     cat <<EOF
-Verwendung: bash $(basename "$0")
+Verwendung: bash $(basename "$0") [-np <Neues Admin-Passwort>]
 
 Setzt für alle Benutzer einer SVWS-Datenbank außer Admin ein zufälliges Kennwort
 und schreibt die Liste in die Datei Kennwoerter.txt.
-Vor dem Aufruf oben im Skript eintragen: SERVERNAME, APP_PORT, SCHEMA_NAME,
-MARIADB_ROOT_PASSWORD, SVWS_ADMIN, SVWS_ADMIN_PW.
+Vor dem Aufruf oben im Skript eintragen oder als Umgebungsvariablen übergeben:
+SERVERNAME, APP_PORT, SCHEMA_NAME, MARIADB_ROOT_PASSWORD, SVWS_ADMIN,
+SVWS_ADMIN_PW (darf leer sein) und optional OUTPUT_FILE (Standard: Kennwoerter.txt).
 
 Optionen:
-  -h  Diese Hilfe anzeigen
+  -np  Neues Kennwort für den Benutzer Admin. Wird zum Schluss gesetzt,
+       nachdem alle anderen Benutzer ein neues Kennwort erhalten haben.
+       Ohne -np bleibt das Kennwort von Admin unverändert.
+  -h   Diese Hilfe anzeigen
 
 Beispiel:
-  bash $(basename "$0")
+  bash $(basename "$0") -np NeuesAdminKennwort
 EOF
     exit "${1:-1}"
 }
@@ -55,17 +59,38 @@ for arg in "$@"; do
 done
 
 # --- Konfiguration ---
-# Die Variablen SERVERNAME, APP_PORT, SCHEMA_NAME und MARIADB_ROOT_PASSWORD 
-# sollten idealerweise als Umgebungsvariablen gesetzt sein. 
-# Falls nicht, kann man sie hier definieren:
- SERVERNAME="localhost"
- APP_PORT="8443"
- SCHEMA_NAME=""
- MARIADB_ROOT_PASSWORD=""
- SVWS_ADMIN=""
- SVWS_ADMIN_PW=""
+# Die Werte können als Umgebungsvariablen übergeben werden (z. B. vom
+# All-in-one-Skript). Sind sie nicht gesetzt, gelten die Werte hier:
+SERVERNAME="${SERVERNAME:-localhost}"
+APP_PORT="${APP_PORT:-8443}"
+SCHEMA_NAME="${SCHEMA_NAME:-}"
+MARIADB_ROOT_PASSWORD="${MARIADB_ROOT_PASSWORD:-}"
+SVWS_ADMIN="${SVWS_ADMIN:-}"
+SVWS_ADMIN_PW="${SVWS_ADMIN_PW:-}"      # darf leer sein (z. B. Admin ohne Kennwort)
+OUTPUT_FILE="${OUTPUT_FILE:-Kennwoerter.txt}"
 
-OUTPUT_FILE="Kennwoerter.txt"
+# Parameter auswerten (-np besteht aus zwei Buchstaben, daher ohne getopts)
+NEW_ADMIN_PW=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -np)
+            if [ -z "${2:-}" ]; then
+                echo "Fehler: -np braucht ein Kennwort."
+                usage
+            fi
+            NEW_ADMIN_PW="$2"
+            shift 2
+            ;;
+        *)
+            usage
+            ;;
+    esac
+done
+
+if [ -z "$SCHEMA_NAME" ] || [ -z "$SVWS_ADMIN" ]; then
+    echo "Fehler: SCHEMA_NAME und SVWS_ADMIN müssen gesetzt sein (oben im Skript oder als Umgebungsvariablen)."
+    usage
+fi
 
 # Falls die Datei existiert, leeren wir sie für einen sauberen Durchlauf
 > "$OUTPUT_FILE"
@@ -101,11 +126,14 @@ fi
 # Falls keine User gefunden wurden
 if [ -z "$USERS" ]; then
     echo "Keine passenden Benutzer gefunden."
-    exit 0
+    # Ohne -np gibt es nichts mehr zu tun
+    [ -z "$NEW_ADMIN_PW" ] && exit 0
 fi
 
 # Schleife über alle gefundenen User
 echo "$USERS" | while read -r ID USERNAME; do
+    # leere Zeile (keine Benutzer gefunden) überspringen
+    [ -z "$ID" ] && continue
 
     # Passwort generieren (12 Zeichen, Alphanumerisch)
     PASSWORD=$(openssl rand -base64 12)
@@ -135,4 +163,30 @@ HTTP_CODE=$(eval $CURL_COMMAND)
 
 done
 
-echo "Alle Passwörter außer für "Admin" gesetzt. Die Passwörter wurden in $OUTPUT_FILE gespeichert."
+echo "Alle Passwörter außer für \"Admin\" gesetzt. Die Passwörter wurden in $OUTPUT_FILE gespeichert."
+
+# Optional (-np): neues Kennwort für Admin ganz zum Schluss setzen,
+# weil die Anmeldung danach evtl. nicht mehr mit dem alten Kennwort klappt
+if [ -n "$NEW_ADMIN_PW" ]; then
+    ADMIN_ID=$(mysql --defaults-extra-file="$CONF_FILE" -N -s -e "SELECT ID FROM ${SCHEMA_NAME}.Credentials WHERE Benutzername = 'Admin';")
+    if [ -z "$ADMIN_ID" ]; then
+        echo "[FEHLER] Der Benutzer Admin wurde in ${SCHEMA_NAME} nicht gefunden."
+        exit 1
+    fi
+
+    # Kennwort als JSON-String übergeben (Anführungszeichen und Backslashes maskieren)
+    JSON_PW=$(printf '%s' "$NEW_ADMIN_PW" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    HTTP_CODE=$(curl --user "${SVWS_ADMIN}:${SVWS_ADMIN_PW}" -k -s -o /dev/null -w "%{http_code}" -X POST \
+        "https://${SERVERNAME}:${APP_PORT}/db/${SCHEMA_NAME}/benutzer/${ADMIN_ID}/password" \
+        -H "accept: */*" \
+        -H "Content-Type: application/json" \
+        -d "\"${JSON_PW}\"")
+
+    if [[ "$HTTP_CODE" =~ ^20[0-4]$ ]]; then
+        echo "User: Admin | Passwort: $NEW_ADMIN_PW" >> "$OUTPUT_FILE"
+        echo "[OK] ID ${ADMIN_ID} (Admin): Neues Kennwort gesetzt (Status: $HTTP_CODE)."
+    else
+        echo "[FEHLER] ID ${ADMIN_ID} (Admin): Kennwort konnte nicht gesetzt werden (Status: $HTTP_CODE)."
+        exit 1
+    fi
+fi

@@ -104,4 +104,4 @@ find "$INSTALLPATH" -type f -exec chmod 644 {} +
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo -e "\n################# WebLuPO $SVWSVERSION aktualisiert! ####################\n"
-echo "Die WebLuPO ist erreichbar unter: ${SERVER_IP}"
+echo "Die WebLuPO ist erreichbar unter: http://${SERVER_IP}/weblupo/"

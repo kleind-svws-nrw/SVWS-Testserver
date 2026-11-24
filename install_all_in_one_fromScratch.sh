@@ -31,7 +31,7 @@
 # --- Hilfe ---
 usage() {
     cat <<EOF
-Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>] [-v <Version>]
+Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>] [-v <Version>] [-d <Domain>]
 
 Installiert einen All-in-one-Testserver. Der SVWS-Server wird dabei
 aus einem GitHub-Branch gebaut.
@@ -42,6 +42,8 @@ Optionen:
   -p  Passwort für den MariaDB-Root-User (optional, sonst Zufallsgenerierung)
   -v  Release-Version für WeNoM, WebLuPO und SVWS-Tools, z. B. 1.5.1
       (optional, Standard: neueste Version von github.com/SVWS-NRW/SVWS-Server/releases)
+  -d  Domainname des Servers für Übersichtsseite und WeNoM-Zertifikat
+      (optional, sonst wird die IP-Adresse des Servers verwendet)
   -h  Diese Hilfe anzeigen (auch -help oder --help)
 
 Beispiel:
@@ -62,10 +64,12 @@ BRANCH="dev"
 SERVERMODE="dev"
 MARIADB_ROOT_PASSWORD=""
 SVWSVERSION=""
+DOMAIN=""
 
 # Parameter mit getopts einlesen
-while getopts "p:b:m:v:" opt; do
+while getopts "p:b:m:v:d:" opt; do
   case $opt in
+    d) DOMAIN="$OPTARG" ;;
     v) SVWSVERSION="${OPTARG#v}" ;;
     p) MARIADB_ROOT_PASSWORD="$OPTARG" ;;
     b) BRANCH="$OPTARG" ;;
@@ -78,6 +82,11 @@ done
 [ -z "$BRANCH" ] && BRANCH="dev"
 [ -z "$SERVERMODE" ] && SERVERMODE="dev"
 echo "Verwende Branch: $BRANCH, ServerMode: $SERVERMODE"
+
+# Adresse des Servers: Domain, falls angegeben, sonst IP-Adresse
+SERVER_IP=$(hostname -I | awk '{print $1}')
+SERVER_HOST="${DOMAIN:-$SERVER_IP}"
+echo "Verwende Serveradresse: $SERVER_HOST"
 
 # Passwort generieren, falls nicht angegeben
 if [ -z "$MARIADB_ROOT_PASSWORD" ]; then
@@ -186,17 +195,69 @@ if ! bash "${SCRIPTS_DIR}/install_svws_testserver_fromScratch.sh" \
 fi
 
 #############################################
-# 3. WeNoM installieren (Apache2, nur Port 443)
+# 3. Installer bauen (im Installationsverzeichnis des SVWS-Servers)
+#############################################
+SVWS_DIR="/opt/app/SVWS-Server"
+DOWNLOAD_DIR="/var/www/html/download"
+LINUX_DIST_DIR="${SVWS_DIR}/deployment/linux-installer/build/distributions"
+WENOM_BUILD_DIR="${SVWS_DIR}/svws-webclient/enmserver/build"
+WEBLUPO_BUILD_DIR="${SVWS_DIR}/svws-webclient/laufbahnplanung/build"
+
+# Nicht passende Muster ergeben eine leere Liste statt des Musters selbst
+shopt -s nullglob
+
+# Build-Artefakte früherer Läufe entfernen, damit nur die neuen kopiert werden
+rm -f "$LINUX_DIST_DIR"/install-* "$LINUX_DIST_DIR"/linux-installer-* \
+      "$WENOM_BUILD_DIR"/WeNoM-* "$WEBLUPO_BUILD_DIR"/SVWS-Laufbahnplanung-*
+
+echo "Baue SVWS-Server und Linux-Installer in ${SVWS_DIR}..."
+if ! ( cd "$SVWS_DIR" \
+        && sudo -u svws ./gradlew build -x test \
+        && sudo -u svws ./gradlew buildLinuxInstaller ); then
+    echo "Fehler: Der Gradle-Build in ${SVWS_DIR} ist fehlgeschlagen."
+    exit 1
+fi
+
+# todo: buildWindowsInstaller - variablen für gradle setzen
+# ( cd "$SVWS_DIR" && sudo -u svws ./gradlew buildWindowsInstaller )
+
+# Rechte setzen
+chown -R svws:svws "$SVWS_DIR"
+
+# SVWS-Server neu starten, damit er die neu gebauten Dateien verwendet
+systemctl restart svws
+
+# Tatsächlich gebauten Branch für die Übersichtsseite merken
+BUILD_BRANCH=$(git -C "$SVWS_DIR" branch --show-current 2>/dev/null)
+BUILD_BRANCH="${BUILD_BRANCH:-$BRANCH}"
+BUILD_DATE=$(date '+%Y-%m-%d %H:%M')
+
+# Build-Dateien ins Download-Verzeichnis kopieren (alte Dateien vorher entfernen)
+BUILD_FILES=( "$LINUX_DIST_DIR"/install-* "$LINUX_DIST_DIR"/linux-installer-* \
+              "$WENOM_BUILD_DIR"/WeNoM-* "$WEBLUPO_BUILD_DIR"/SVWS-Laufbahnplanung-* )
+mkdir -p "$DOWNLOAD_DIR"
+rm -f "$DOWNLOAD_DIR"/*
+if [ ${#BUILD_FILES[@]} -gt 0 ]; then
+    echo "Kopiere ${#BUILD_FILES[@]} Build-Dateien nach ${DOWNLOAD_DIR}..."
+    cp "${BUILD_FILES[@]}" "$DOWNLOAD_DIR"/
+else
+    echo "Hinweis: Es wurden keine Build-Dateien gefunden, das Download-Verzeichnis bleibt leer."
+fi
+
+#############################################
+# 4. WeNoM installieren (Apache2, nur Port 443)
 # Vor der WebLuPO, damit Port 80 bei der Apache-Installation noch frei ist
 #############################################
 echo "Starte install_wenom_testserver.sh (Version: $SVWSVERSION)..."
-if ! bash "${SCRIPTS_DIR}/install_wenom_testserver.sh" -v "$SVWSVERSION"; then
+WENOM_ARGS=(-v "$SVWSVERSION")
+[ -n "$DOMAIN" ] && WENOM_ARGS+=(-d "$DOMAIN")
+if ! bash "${SCRIPTS_DIR}/install_wenom_testserver.sh" "${WENOM_ARGS[@]}"; then
     echo "Fehler: install_wenom_testserver.sh wurde mit einem Fehler beendet."
     exit 1
 fi
 
 #############################################
-# 4. WebLuPO installieren (nginx, Port 80)
+# 5. WebLuPO installieren (nginx, Port 80, unter /weblupo/)
 #############################################
 echo "Starte install_weblupo_testserver.sh (Version: $SVWSVERSION)..."
 if ! bash "${SCRIPTS_DIR}/install_weblupo_testserver.sh" -v "$SVWSVERSION"; then
@@ -205,7 +266,33 @@ if ! bash "${SCRIPTS_DIR}/install_weblupo_testserver.sh" -v "$SVWSVERSION"; then
 fi
 
 #############################################
-# 5. SVWS-Tools installieren
+# 6. Selbst gebaute WeNoM- und WebLuPO-Version einspielen
+#############################################
+# Die Installationsskripte richten Apache und nginx mit einer Release-Version ein.
+# Damit WeNoM und WebLuPO zum gebauten SVWS-Server passen, werden sie mit den
+# Dateien aus dem eigenen Build überschrieben (die WeNoM-Datenbank bleibt erhalten).
+WENOM_ZIP=$(printf '%s\n' "$WENOM_BUILD_DIR"/WeNoM-*.zip | sort -V | tail -n 1)
+WEBLUPO_ZIP=$(printf '%s\n' "$WEBLUPO_BUILD_DIR"/SVWS-Laufbahnplanung-*.zip | sort -V | tail -n 1)
+
+if [ -n "$WENOM_ZIP" ]; then
+    echo "Spiele $(basename "$WENOM_ZIP") ein..."
+    unzip -q -o "$WENOM_ZIP" -d /var/www/html/wenom
+    chown -R www-data:www-data /var/www/html/wenom
+    systemctl restart 'php*-fpm.service'
+else
+    echo "Hinweis: Kein gebautes WeNoM gefunden, die Release-Version bleibt installiert."
+fi
+
+if [ -n "$WEBLUPO_ZIP" ]; then
+    echo "Spiele $(basename "$WEBLUPO_ZIP") ein..."
+    unzip -q -o "$WEBLUPO_ZIP" -d /var/www/html/weblupo
+    chown -R www-data:www-data /var/www/html/weblupo
+else
+    echo "Hinweis: Keine gebaute WebLuPO gefunden, die Release-Version bleibt installiert."
+fi
+
+#############################################
+# 7. SVWS-Tools installieren
 #############################################
 TOOLS_DIR="/opt/app/svws/tools"
 TOOLS_URL="https://github.com/SVWS-NRW/SVWS-Tools/releases/download/v${SVWSVERSION}/svws-tools-${SVWSVERSION}.zip"
@@ -230,6 +317,171 @@ sed -i 's|"AppsPath"[[:space:]]*:[[:space:]]*[^,]*|"AppsPath" : "'"$TOOLS_DIR"'"
 systemctl restart svws
 
 #############################################
+# 8. Übersichtsseite /var/www/html/index.html erzeugen
+#############################################
+INDEX_FILE="/var/www/html/index.html"
+
+# Tabellenzeilen für alle Dateien im Download-Verzeichnis erzeugen
+DOWNLOAD_ROWS=""
+while IFS= read -r FILE; do
+    DOWNLOAD_ROWS+="                <tr>
+                    <td><a href=\"download/${FILE}\">${FILE}</a></td>
+                </tr>
+"
+done < <(find "$DOWNLOAD_DIR" -maxdepth 1 -type f -printf '%f\n' | sort)
+if [ -z "$DOWNLOAD_ROWS" ]; then
+    DOWNLOAD_ROWS="                <tr>
+                    <td>Keine Build-Dateien vorhanden</td>
+                </tr>
+"
+fi
+
+echo "Erzeuge Übersichtsseite ${INDEX_FILE} für ${SERVER_HOST}..."
+mkdir -p "$(dirname "$INDEX_FILE")"
+cat > "$INDEX_FILE" <<EOF
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <title>${SERVER_HOST} - Testplattform</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+    <style>
+        .header-bg { background-color: #003462; color: white; }
+    </style>
+</head>
+<body>
+
+<header class="w3-container header-bg">
+    <div class="w3-row">
+        <div class="w3-half w3-container">
+            <h1><a href="https://www.svws.nrw.de/" style="text-decoration:none;">SVWS-Server</a></h1>
+            <h4>Testplattform</h4>
+        </div>
+        <div class="w3-half w3-container">
+            <img src="logo_nrw.jpg" alt="NRW Logo" height="150" class="w3-right w3-padding-16">
+        </div>
+    </div>
+</header>
+
+<main class="w3-container w3-padding-large">
+
+    <section>
+        <h3>SVWS-Server, WeNoM und WebLuPO</h3>
+        <p><b>Testserver</b> – ausschließlich für Testzwecke vorgesehen!</p>
+        <p>Diese Versionen befinden sich noch in der Testphase und<br>
+        sind <b>nicht für den produktiven Einsatz</b> geeignet.</p>
+        <p><b>BUILD ${BUILD_DATE} - BRANCH ${BUILD_BRANCH} - SERVERMODE ${SERVERMODE}</b></p>
+    </section>
+
+    <section>
+        <table class="w3-table w3-bordered w3-hoverable">
+            <thead>
+                <tr class="w3-light-grey">
+                    <th>Download Files</th>
+                </tr>
+            </thead>
+            <tbody>
+${DOWNLOAD_ROWS}            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <table class="w3-table w3-bordered w3-hoverable">
+            <thead>
+                <tr class="w3-light-grey">
+                    <th>Test Server</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>SVWS-Server: <a href="https://${SERVER_HOST}:8443/">https://${SERVER_HOST}:8443</a></td>
+                </tr>
+                <tr>
+                    <td>SVWS-WeNoM: <a href="https://${SERVER_HOST}/">https://${SERVER_HOST}</a></td>
+                </tr>
+                <tr>
+                    <td>SVWS-WebLuPO: <a href="http://${SERVER_HOST}/weblupo/">http://${SERVER_HOST}/weblupo/</a></td>
+                </tr>
+                 <tr>
+                    <td>SVWS-Tools: <a href="https://${SERVER_HOST}:8443/app/start">https://${SERVER_HOST}:8443/app/start</a></td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+</main>
+</body>
+</html>
+EOF
+chown www-data:www-data "$INDEX_FILE"
+chmod 644 "$INDEX_FILE"
+
+# NRW-Logo für die Übersichtsseite herunterladen
+LOGO_FILE="/var/www/html/logo_nrw.jpg"
+if wget -q -O "$LOGO_FILE" https://www.land.nrw/media/12370/download; then
+    chown www-data:www-data "$LOGO_FILE"
+    chmod 644 "$LOGO_FILE"
+else
+    rm -f "$LOGO_FILE"
+    echo "Hinweis: Das NRW-Logo konnte nicht geladen werden, die Übersichtsseite zeigt dann nur den Alternativtext."
+fi
+
+# Standard-Startseite von nginx löschen
+rm -f /var/www/html/index.nginx-debian.html
+
+#############################################
+# 9. Testdatenbanken importieren
+#############################################
+# Eigenes Zufallspasswort für den Schema-Benutzer, wird am Ende angezeigt
+SCHEMA_USER="svwsadmin"
+SCHEMA_PASSWORD=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
+
+# Im Skriptordner ausführen: dort liegt die .env mit MARIADB_ROOT_PASSWORD
+# (von install_svws_testserver_fromScratch.sh) und dorthin werden die
+# Testdatenbanken (SVWS-TestSqlites) geladen
+echo "Starte create_svws_testdbs.sh..."
+if ! ( cd "$SCRIPTS_DIR" \
+        && bash ./create_svws_testdbs.sh -u "$SCHEMA_USER" -p "$SCHEMA_PASSWORD" ); then
+    echo "Fehler: create_svws_testdbs.sh wurde mit einem Fehler beendet."
+    exit 1
+fi
+
+########################################################
+# 10. Benutzerkennwörter in allen Testdatenbanken setzen
+########################################################
+# Ein gemeinsames neues Admin-Kennwort (12 bis 16 Zeichen) für alle Datenbanken
+ADMIN_PW_LENGTH=$(( 12 + RANDOM % 5 ))
+NEW_ADMIN_PW=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c "$ADMIN_PW_LENGTH")
+PASSWORD_DIR="${SCRIPTS_DIR}/Kennwoerter"
+mkdir -p "$PASSWORD_DIR"
+chmod 700 "$PASSWORD_DIR"
+
+# Datenbanken = die in Schritt 9 importierten SQLite-Dateien
+TESTDB_FILES=( "${SCRIPTS_DIR}/SVWS-TestSqlites"/*.sqlite )
+FAILED_DBS=()
+
+for db_file in "${TESTDB_FILES[@]}"; do
+    DB_NAME=$(basename "$db_file" .sqlite)
+    echo "Setze Kennwörter in Datenbank ${DB_NAME}..."
+    # Werte als Umgebungsvariablen übergeben; Admin hat in den Testdatenbanken
+    # noch kein Kennwort, daher ist SVWS_ADMIN_PW leer
+    if ! SCHEMA_NAME="$DB_NAME" \
+         MARIADB_ROOT_PASSWORD="$MARIADB_ROOT_PASSWORD" \
+         SVWS_ADMIN="Admin" \
+         SVWS_ADMIN_PW="" \
+         OUTPUT_FILE="${PASSWORD_DIR}/Kennwoerter_${DB_NAME}.txt" \
+         bash "${SCRIPTS_DIR}/generate_svws_userpasswords.sh" -np "$NEW_ADMIN_PW"; then
+        FAILED_DBS+=("$DB_NAME")
+    fi
+done
+chmod 600 "$PASSWORD_DIR"/*.txt 2>/dev/null || true
+
+if [ ${#FAILED_DBS[@]} -gt 0 ]; then
+    echo "Hinweis: In folgenden Datenbanken gab es Fehler beim Setzen der Kennwörter: ${FAILED_DBS[*]}"
+fi
+
+#############################################
 # TODO: weitere Installationsschritte
 #############################################
 
@@ -242,5 +494,9 @@ echo "Installation abgeschlossen."
 if [ "$PW_WAS_GENERATED" = true ]; then
     echo "WICHTIG: Das generierte MariaDB-Root-Passwort lautet: $MARIADB_ROOT_PASSWORD"
 fi
+echo "Testdatenbanken: Benutzer '$SCHEMA_USER', Passwort: $SCHEMA_PASSWORD"
+echo "SVWS-Benutzer 'Admin' in allen Testdatenbanken, Passwort: $NEW_ADMIN_PW"
+echo "Kennwörter aller übrigen Benutzer: ${PASSWORD_DIR}/Kennwoerter_<Datenbank>.txt"
+echo "Übersichtsseite: http://${SERVER_HOST}/"
 echo "------------------------------------------------"
 
