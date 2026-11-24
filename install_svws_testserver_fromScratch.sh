@@ -104,7 +104,8 @@ timedatectl set-timezone Europe/Berlin
 ############################################
 # Softwarequellen einbinden & Softwareupdate
 apt update && apt upgrade -y
-apt install -y sudo wget apt-transport-https gpg git zip mariadb-server
+# libatomic1 wird von dem Node.js benötigt, das Gradle für den Webclient-Build lädt
+apt install -y sudo wget apt-transport-https gpg git zip libatomic1 mariadb-server
 
 # Java (Adoptium) Setup
 wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor | tee /etc/apt/trusted.gpg.d/adoptium.gpg > /dev/null
@@ -146,7 +147,10 @@ cd /opt/app/SVWS-Server
 sudo -u svws git switch ${BRANCH}
 
 # Build ohne Tests, inklusive explizitem OpenAPI-Schritt für Stabilität
-sudo -u svws ./gradlew :svws-openapi:assembleTranspiled assemble -x test
+if ! sudo -u svws ./gradlew :svws-openapi:assembleTranspiled assemble -x test; then
+    echo "Fehler: Der Gradle-Build des SVWS-Servers ist fehlgeschlagen."
+    exit 1
+fi
 
 ## Server einrichten
 # keystore PW generieren

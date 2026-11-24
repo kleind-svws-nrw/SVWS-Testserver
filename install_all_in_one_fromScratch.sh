@@ -33,13 +33,16 @@ usage() {
     cat <<EOF
 Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>] [-v <Version>] [-d <Domain>]
 
-Installiert einen All-in-one-Testserver. Der SVWS-Server wird dabei
-aus einem GitHub-Branch gebaut.
+Installiert einen All-in-one-Testserver. Der SVWS-Server wird aus einem
+GitHub-Branch gebaut (Ordner SVWS-Server neben dem Skriptordner) und mit dem
+dabei erzeugten Linux-Installer nach /opt/app/svws installiert (Port 8443).
+Die Antworten für den Installer inkl. MariaDB-Root-Passwort stehen in der
+Datei .env im Skriptordner.
 
 Optionen:
   -m  ServerMode, z. B. dev, alpha, beta, stable (optional, Standard: dev)
   -b  Git-Branch, z. B. dev oder master (optional, Standard: dev)
-  -p  Passwort für den MariaDB-Root-User (optional, sonst Zufallsgenerierung)
+  -p  Passwort für MariaDB-Root und Keystore (optional, sonst Zufallsgenerierung)
   -v  Release-Version für WeNoM, WebLuPO und SVWS-Tools, z. B. 1.5.1
       (optional, Standard: neueste Version von github.com/SVWS-NRW/SVWS-Server/releases)
   -d  Domainname des Servers für Übersichtsseite und WeNoM-Zertifikat
@@ -77,6 +80,13 @@ while getopts "p:b:m:v:d:" opt; do
     *) usage ;;
   esac
 done
+
+# --- Gesamte Ausgabe (inkl. Fehlermeldungen) zusätzlich in eine Logdatei schreiben ---
+LOG_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install_all_in_one_$(date '+%Y%m%d_%H%M%S').log"
+touch "$LOG_FILE"
+chmod 600 "$LOG_FILE"    # enthält Kennwörter, daher nur für root lesbar
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "Protokoll der Installation: $LOG_FILE"
 
 # Fallback, falls -b oder -m mit leerem Wert übergeben wurden
 [ -z "$BRANCH" ] && BRANCH="dev"
@@ -121,7 +131,6 @@ DOWNLOAD_SCRIPT_URL="https://github.com/kleind-svws-nrw/SVWS-Testserver/raw/refs
 
 # Skripte, die für die All-in-one-Installation benötigt werden
 REQUIRED_SCRIPTS=(
-    install_svws_testserver_fromScratch.sh
     install_wenom_testserver.sh
     install_weblupo_testserver.sh
     create_svws_testdbs.sh
@@ -183,22 +192,11 @@ else
 fi
 
 #############################################
-# 2. SVWS-Server aus dem GitHub-Branch bauen und installieren
+# 2. SVWS-Server aus dem GitHub-Branch bauen
 #############################################
-echo "Starte install_svws_testserver_fromScratch.sh (Branch: $BRANCH, ServerMode: $SERVERMODE)..."
-if ! bash "${SCRIPTS_DIR}/install_svws_testserver_fromScratch.sh" \
-        -b "$BRANCH" \
-        -m "$SERVERMODE" \
-        -p "$MARIADB_ROOT_PASSWORD"; then
-    echo "Fehler: install_svws_testserver_fromScratch.sh wurde mit einem Fehler beendet."
-    exit 1
-fi
-
-#############################################
-# 3. Installer bauen (im Installationsverzeichnis des SVWS-Servers)
-#############################################
-SVWS_DIR="/opt/app/SVWS-Server"
-DOWNLOAD_DIR="/var/www/html/download"
+TEMURINVERSION="temurin-21-jdk"
+# Git-Klon direkt neben dem Installationsverzeichnis (Ordner SVWS-Server)
+SVWS_DIR="$(dirname "$SCRIPTS_DIR")/SVWS-Server"
 LINUX_DIST_DIR="${SVWS_DIR}/deployment/linux-installer/build/distributions"
 WENOM_BUILD_DIR="${SVWS_DIR}/svws-webclient/enmserver/build"
 WEBLUPO_BUILD_DIR="${SVWS_DIR}/svws-webclient/laufbahnplanung/build"
@@ -206,26 +204,51 @@ WEBLUPO_BUILD_DIR="${SVWS_DIR}/svws-webclient/laufbahnplanung/build"
 # Nicht passende Muster ergeben eine leere Liste statt des Musters selbst
 shopt -s nullglob
 
-# Build-Artefakte früherer Läufe entfernen, damit nur die neuen kopiert werden
+echo "Baue den SVWS-Server (Branch: $BRANCH) in ${SVWS_DIR}..."
+
+# --- Sprache und Zeitzone ---
+sed -i '/^# de_DE.UTF-8 UTF-8/s/^# //' /etc/locale.gen
+locale-gen
+update-locale LANG=de_DE.UTF-8
+export LANG=de_DE.UTF-8
+export LC_ALL=de_DE.UTF-8
+timedatectl set-timezone Europe/Berlin
+
+# --- Pakete und Java (Adoptium) ---
+apt update && apt upgrade -y
+# libatomic1 wird von dem Node.js benötigt, das Gradle für den Webclient-Build lädt;
+# unzip, curl, net-tools und jq braucht der Linux-Installer
+apt install -y wget apt-transport-https gpg git zip unzip curl net-tools jq libatomic1
+wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor | tee /etc/apt/trusted.gpg.d/adoptium.gpg > /dev/null
+echo "deb https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" | tee /etc/apt/sources.list.d/adoptium.list
+apt update
+apt install -y "$TEMURINVERSION"
+
+# --- Quellen holen ---
+if [ ! -d "${SVWS_DIR}/.git" ]; then
+    git clone https://github.com/SVWS-NRW/SVWS-Server "$SVWS_DIR"
+fi
+git -C "$SVWS_DIR" switch "$BRANCH"
+
+# --- Bauen: Server (ohne Tests, mit explizitem OpenAPI-Schritt) und Linux-Installer ---
+# Build-Artefakte früherer Läufe entfernen, damit später nur die neuen verwendet werden
 rm -f "$LINUX_DIST_DIR"/install-* "$LINUX_DIST_DIR"/linux-installer-* \
       "$WENOM_BUILD_DIR"/WeNoM-* "$WEBLUPO_BUILD_DIR"/SVWS-Laufbahnplanung-*
 
-echo "Baue SVWS-Server und Linux-Installer in ${SVWS_DIR}..."
 if ! ( cd "$SVWS_DIR" \
-        && sudo -u svws ./gradlew build -x test \
-        && sudo -u svws ./gradlew buildLinuxInstaller ); then
+        && ./gradlew :svws-openapi:assembleTranspiled build -x test \
+        && ./gradlew buildLinuxInstaller ); then
     echo "Fehler: Der Gradle-Build in ${SVWS_DIR} ist fehlgeschlagen."
     exit 1
 fi
 
 # todo: buildWindowsInstaller - variablen für gradle setzen
-# ( cd "$SVWS_DIR" && sudo -u svws ./gradlew buildWindowsInstaller )
+# ( cd "$SVWS_DIR" && ./gradlew buildWindowsInstaller )
 
-# Rechte setzen
-chown -R svws:svws "$SVWS_DIR"
-
-# SVWS-Server neu starten, damit er die neu gebauten Dateien verwendet
-systemctl restart svws
+#############################################
+# 3. Build-Dateien bereitstellen
+#############################################
+DOWNLOAD_DIR="/var/www/html/download"
 
 # Tatsächlich gebauten Branch für die Übersichtsseite merken
 BUILD_BRANCH=$(git -C "$SVWS_DIR" branch --show-current 2>/dev/null)
@@ -245,7 +268,66 @@ else
 fi
 
 #############################################
-# 4. WeNoM installieren (Apache2, nur Port 443)
+# 4. SVWS-Server mit dem gebauten Linux-Installer installieren
+#############################################
+# Wie install_svws_testserver.sh, aber mit den selbst gebauten Dateien statt
+# der Release-Dateien von GitHub
+SVWS_APP_PATH="/opt/app/svws"
+SVWS_CONF_PATH="/etc/app/svws/conf"
+SVWS_CONFIG="${SVWS_CONF_PATH}/svwsconfig.json"
+ENV_FILE="${SCRIPTS_DIR}/.env"
+
+INSTALL_SCRIPT=$(printf '%s\n' "$LINUX_DIST_DIR"/install-*.sh | sort -V | tail -n 1)
+INSTALL_ARCHIVE=$(printf '%s\n' "$LINUX_DIST_DIR"/linux-installer-*.tar.gz | sort -V | tail -n 1)
+if [ -z "$INSTALL_SCRIPT" ] || [ -z "$INSTALL_ARCHIVE" ]; then
+    echo "Fehler: Installer (install-*.sh / linux-installer-*.tar.gz) in ${LINUX_DIST_DIR} nicht gefunden."
+    exit 1
+fi
+
+# Antworten für den Installer. Die Datei dient zugleich als .env für
+# create_svws_testdbs.sh und delete_all_svws_dbs.sh (MARIADB_ROOT_PASSWORD)
+cat > "$ENV_FILE" <<EOF
+CREATE_MARIADB=j
+CREATE_KEYSTORE=j
+MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+APP_PATH=${SVWS_APP_PATH}
+CONF_PATH=${SVWS_CONF_PATH}
+APP_PORT=8443
+SVWS_TLS_KEYSTORE_PATH=${SVWS_CONF_PATH}/keystore
+SVWS_TLS_KEYSTORE_PASSWORD=${MARIADB_ROOT_PASSWORD}
+SVWS_TLS_KEY_ALIAS=svws
+INPUT_COMMON_NAME=svws
+INPUT_ORGANIZATIONAL_UNIT=svws
+INPUT_ORGANIZATION=svws
+INPUT_LOCALITY=NRW
+INPUT_STATE=NRW
+INPUT_COUNTRY=DE
+validity_days=3650
+EOF
+chmod 600 "$ENV_FILE"
+
+# Installer in einem eigenen Arbeitsordner ausführen: er erwartet .env und
+# das Archiv im aktuellen Verzeichnis
+INSTALL_WORK_DIR=$(mktemp -d)
+cp "$INSTALL_SCRIPT" "$INSTALL_ARCHIVE" "$ENV_FILE" "$INSTALL_WORK_DIR"/
+echo "Installiere $(basename "$INSTALL_ARCHIVE") mit $(basename "$INSTALL_SCRIPT")..."
+if ! ( cd "$INSTALL_WORK_DIR" && bash "./$(basename "$INSTALL_SCRIPT")" ); then
+    rm -rf "$INSTALL_WORK_DIR"
+    echo "Fehler: Die Installation des SVWS-Servers ist fehlgeschlagen."
+    exit 1
+fi
+rm -rf "$INSTALL_WORK_DIR"
+
+# ServerMode aus -m setzen (der Installer richtet den Standard ein)
+if [ -f "$SVWS_CONFIG" ]; then
+    sed -i 's|"ServerMode"[[:space:]]*:[[:space:]]*"[^"]*"|"ServerMode" : "'"${SERVERMODE}"'"|' "$SVWS_CONFIG"
+    systemctl restart svws
+else
+    echo "Hinweis: ${SVWS_CONFIG} nicht gefunden, ServerMode wurde nicht gesetzt."
+fi
+
+#############################################
+# 5. WeNoM installieren (Apache2, nur Port 443)
 # Vor der WebLuPO, damit Port 80 bei der Apache-Installation noch frei ist
 #############################################
 echo "Starte install_wenom_testserver.sh (Version: $SVWSVERSION)..."
@@ -257,7 +339,7 @@ if ! bash "${SCRIPTS_DIR}/install_wenom_testserver.sh" "${WENOM_ARGS[@]}"; then
 fi
 
 #############################################
-# 5. WebLuPO installieren (nginx, Port 80, unter /weblupo/)
+# 6. WebLuPO installieren (nginx, Port 80, unter /weblupo/)
 #############################################
 echo "Starte install_weblupo_testserver.sh (Version: $SVWSVERSION)..."
 if ! bash "${SCRIPTS_DIR}/install_weblupo_testserver.sh" -v "$SVWSVERSION"; then
@@ -266,7 +348,7 @@ if ! bash "${SCRIPTS_DIR}/install_weblupo_testserver.sh" -v "$SVWSVERSION"; then
 fi
 
 #############################################
-# 6. Selbst gebaute WeNoM- und WebLuPO-Version einspielen
+# 7. Selbst gebaute WeNoM- und WebLuPO-Version einspielen
 #############################################
 # Die Installationsskripte richten Apache und nginx mit einer Release-Version ein.
 # Damit WeNoM und WebLuPO zum gebauten SVWS-Server passen, werden sie mit den
@@ -292,11 +374,10 @@ else
 fi
 
 #############################################
-# 7. SVWS-Tools installieren
+# 8. SVWS-Tools installieren
 #############################################
-TOOLS_DIR="/opt/app/svws/tools"
+TOOLS_DIR="${SVWS_APP_PATH}/tools"
 TOOLS_URL="https://github.com/SVWS-NRW/SVWS-Tools/releases/download/v${SVWSVERSION}/svws-tools-${SVWSVERSION}.zip"
-SVWS_CONFIG="/opt/app/SVWS-Server/svws-server-app/svwsconfig.json"
 
 echo "Installiere SVWS-Tools ${SVWSVERSION} nach ${TOOLS_DIR}..."
 TMPZIP=$(mktemp --suffix=.zip)
@@ -310,14 +391,14 @@ fi
 mkdir -p "$TOOLS_DIR"
 unzip -q -o "$TMPZIP" -d "$TOOLS_DIR"
 rm -f "$TMPZIP"
-chown -R svws:svws "$TOOLS_DIR"
+chown -R --reference="$SVWS_APP_PATH" "$TOOLS_DIR"
 
 # SVWS-Server auf die Tools hinweisen (AppsPath) und neu starten
 sed -i 's|"AppsPath"[[:space:]]*:[[:space:]]*[^,]*|"AppsPath" : "'"$TOOLS_DIR"'"|' "$SVWS_CONFIG"
 systemctl restart svws
 
 #############################################
-# 8. Übersichtsseite /var/www/html/index.html erzeugen
+# 9. Übersichtsseite /var/www/html/index.html erzeugen
 #############################################
 INDEX_FILE="/var/www/html/index.html"
 
@@ -431,14 +512,14 @@ fi
 rm -f /var/www/html/index.nginx-debian.html
 
 #############################################
-# 9. Testdatenbanken importieren
+# 10. Testdatenbanken importieren
 #############################################
 # Eigenes Zufallspasswort für den Schema-Benutzer, wird am Ende angezeigt
 SCHEMA_USER="svwsadmin"
 SCHEMA_PASSWORD=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
 
 # Im Skriptordner ausführen: dort liegt die .env mit MARIADB_ROOT_PASSWORD
-# (von install_svws_testserver_fromScratch.sh) und dorthin werden die
+# (aus Schritt 4) und dorthin werden die
 # Testdatenbanken (SVWS-TestSqlites) geladen
 echo "Starte create_svws_testdbs.sh..."
 if ! ( cd "$SCRIPTS_DIR" \
@@ -448,7 +529,7 @@ if ! ( cd "$SCRIPTS_DIR" \
 fi
 
 ########################################################
-# 10. Benutzerkennwörter in allen Testdatenbanken setzen
+# 11. Benutzerkennwörter in allen Testdatenbanken setzen
 ########################################################
 
 # Ein gemeinsames neues Admin-Kennwort (12 bis 16 Zeichen) für alle Datenbanken
@@ -495,9 +576,11 @@ echo "Installation abgeschlossen."
 if [ "$PW_WAS_GENERATED" = true ]; then
     echo "WICHTIG: Das generierte MariaDB-Root-Passwort lautet: $MARIADB_ROOT_PASSWORD"
 fi
+echo "Das MariaDB-Root-Passwort ist gespeichert in: $ENV_FILE (nur für root lesbar)"
 echo "Testdatenbanken: Benutzer '$SCHEMA_USER', Passwort: $SCHEMA_PASSWORD"
 echo "SVWS-Benutzer 'Admin' in allen Testdatenbanken, Passwort: $NEW_ADMIN_PW"
 echo "Kennwörter aller übrigen Benutzer: ${PASSWORD_DIR}/Kennwoerter_<Datenbank>.txt"
 echo "Übersichtsseite: http://${SERVER_HOST}/"
+echo "Protokoll der Installation: $LOG_FILE"
 echo "------------------------------------------------"
 
