@@ -253,9 +253,21 @@ echo "Spiele $(basename "$WENOM_ZIP") ein..."
 unzip -q -o "$WENOM_ZIP" -d "$WENOM_DIR"
 chown -R www-data:www-data "$WENOM_DIR"
 systemctl restart 'php*-fpm.service'
-# Legt die WeNoM-Datenbank neu an (wie bei der Installation)
-curl -k -s --request GET --url "https://localhost/api/setup" \
-     --header "Content-Type: application/x-www-form-urlencoded" > /dev/null
+# WeNoM-Datenbank (app.sqlite) und ggf. neues Client-Secret (client.sec) anlegen.
+# Muss nach dem Löschen der app.sqlite (Schritt 3) und vor dem Kopieren
+# des Secrets in den Testzugang (Schritt 10) laufen.
+echo "Richte die WeNoM-Datenbank neu ein..."
+curl -k --request GET --url "https://localhost/api/setup" --header "Content-Type: application/x-www-form-urlencoded"
+echo
+
+for f in app.sqlite client.sec; do
+    if [ ! -f "${WENOM_DIR}/db/${f}" ]; then
+        echo "Fehler: ${WENOM_DIR}/db/${f} wurde von api/setup nicht angelegt."
+        exit 1
+    fi
+done
+chown -R www-data:www-data "${WENOM_DIR}/db"
+echo "WeNoM-Datenbank und Client-Secret sind vorhanden."
 
 #############################################
 # 6. Neue WebLuPO einspielen
