@@ -42,7 +42,8 @@ SVWS_ADMIN_PW (darf leer sein) und optional OUTPUT_FILE (Standard: Kennwoerter.t
 Optionen:
   -np  Neues Kennwort für den Benutzer Admin. Wird zum Schluss gesetzt,
        nachdem alle anderen Benutzer ein neues Kennwort erhalten haben.
-       Ohne -np bleibt das Kennwort von Admin unverändert.
+       Ohne -np wird TESTDB_ADMIN_PASSWORD aus der .env neben dem Skript
+       genommen; steht es dort nicht, bleibt das Kennwort von Admin unverändert.
   -h   Diese Hilfe anzeigen
 
 Beispiel:
@@ -70,7 +71,7 @@ SVWS_ADMIN_PW="${SVWS_ADMIN_PW:-}"      # darf leer sein (z. B. Admin ohne Kennw
 OUTPUT_FILE="${OUTPUT_FILE:-Kennwoerter.txt}"
 
 # Parameter auswerten (-np besteht aus zwei Buchstaben, daher ohne getopts)
-NEW_ADMIN_PW=""
+TESTDB_ADMIN_PASSWORD=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -np)
@@ -78,7 +79,7 @@ while [[ $# -gt 0 ]]; do
                 echo "Fehler: -np braucht ein Kennwort."
                 usage
             fi
-            NEW_ADMIN_PW="$2"
+            TESTDB_ADMIN_PASSWORD="$2"
             shift 2
             ;;
         *)
@@ -86,6 +87,15 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Ohne -np: Admin-Kennwort aus der .env neben dem Skript übernehmen, falls vorhanden
+if [ -z "$TESTDB_ADMIN_PASSWORD" ]; then
+    ENV_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.env"
+    if [ -f "$ENV_FILE" ]; then
+        TESTDB_ADMIN_PASSWORD=$(grep -E '^TESTDB_ADMIN_PASSWORD=' "$ENV_FILE" | tail -n 1 | cut -d '=' -f2- | tr -d '"' | tr -d "'")
+        [ -n "$TESTDB_ADMIN_PASSWORD" ] && echo "Admin-Kennwort aus $ENV_FILE übernommen (TESTDB_ADMIN_PASSWORD)."
+    fi
+fi
 
 if [ -z "$SCHEMA_NAME" ] || [ -z "$SVWS_ADMIN" ]; then
     echo "Fehler: SCHEMA_NAME und SVWS_ADMIN müssen gesetzt sein (oben im Skript oder als Umgebungsvariablen)."
@@ -127,7 +137,7 @@ fi
 if [ -z "$USERS" ]; then
     echo "Keine passenden Benutzer gefunden."
     # Ohne -np gibt es nichts mehr zu tun
-    [ -z "$NEW_ADMIN_PW" ] && exit 0
+    [ -z "$TESTDB_ADMIN_PASSWORD" ] && exit 0
 fi
 
 # Schleife über alle gefundenen User
@@ -167,7 +177,7 @@ echo "Alle Passwörter außer für \"Admin\" gesetzt. Die Passwörter wurden in 
 
 # Optional (-np): neues Kennwort für Admin ganz zum Schluss setzen,
 # weil die Anmeldung danach evtl. nicht mehr mit dem alten Kennwort klappt
-if [ -n "$NEW_ADMIN_PW" ]; then
+if [ -n "$TESTDB_ADMIN_PASSWORD" ]; then
     ADMIN_ID=$(mysql --defaults-extra-file="$CONF_FILE" -N -s -e "SELECT ID FROM ${SCHEMA_NAME}.Credentials WHERE Benutzername = 'Admin';")
     if [ -z "$ADMIN_ID" ]; then
         echo "[FEHLER] Der Benutzer Admin wurde in ${SCHEMA_NAME} nicht gefunden."
@@ -175,7 +185,7 @@ if [ -n "$NEW_ADMIN_PW" ]; then
     fi
 
     # Kennwort als JSON-String übergeben (Anführungszeichen und Backslashes maskieren)
-    JSON_PW=$(printf '%s' "$NEW_ADMIN_PW" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    JSON_PW=$(printf '%s' "$TESTDB_ADMIN_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')
     HTTP_CODE=$(curl --user "${SVWS_ADMIN}:${SVWS_ADMIN_PW}" -k -s -o /dev/null -w "%{http_code}" -X POST \
         "https://${SERVERNAME}:${APP_PORT}/db/${SCHEMA_NAME}/benutzer/${ADMIN_ID}/password" \
         -H "accept: */*" \
@@ -183,7 +193,7 @@ if [ -n "$NEW_ADMIN_PW" ]; then
         -d "\"${JSON_PW}\"")
 
     if [[ "$HTTP_CODE" =~ ^20[0-4]$ ]]; then
-        echo "User: Admin | Passwort: $NEW_ADMIN_PW" >> "$OUTPUT_FILE"
+        echo "User: Admin | Passwort: $TESTDB_ADMIN_PASSWORD" >> "$OUTPUT_FILE"
         echo "[OK] ID ${ADMIN_ID} (Admin): Neues Kennwort gesetzt (Status: $HTTP_CODE)."
     else
         echo "[FEHLER] ID ${ADMIN_ID} (Admin): Kennwort konnte nicht gesetzt werden (Status: $HTTP_CODE)."

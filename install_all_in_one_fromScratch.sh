@@ -567,7 +567,14 @@ fi
 
 # Ein gemeinsames neues Admin-Kennwort (12 bis 16 Zeichen) für alle Datenbanken
 ADMIN_PW_LENGTH=$(( 12 + RANDOM % 5 ))
-NEW_ADMIN_PW=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c "$ADMIN_PW_LENGTH")
+TESTDB_ADMIN_PASSWORD=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c "$ADMIN_PW_LENGTH")
+
+# Admin-Kennwort in die .env schreiben (vorhandenen Eintrag ersetzen);
+# generate_svws_userpasswords.sh liest es dort, wenn kein -np angegeben ist
+grep -v '^TESTDB_ADMIN_PASSWORD=' "$ENV_FILE" > "${ENV_FILE}.tmp" || true
+echo "TESTDB_ADMIN_PASSWORD=${TESTDB_ADMIN_PASSWORD}" >> "${ENV_FILE}.tmp"
+mv "${ENV_FILE}.tmp" "$ENV_FILE"
+chmod 600 "$ENV_FILE"
 PASSWORD_DIR="${SCRIPTS_DIR}/Kennwoerter"
 mkdir -p "$PASSWORD_DIR"
 chmod 700 "$PASSWORD_DIR"
@@ -586,7 +593,7 @@ for db_file in "${TESTDB_FILES[@]}"; do
          SVWS_ADMIN="Admin" \
          SVWS_ADMIN_PW="" \
          OUTPUT_FILE="${PASSWORD_DIR}/Kennwoerter_${DB_NAME}.txt" \
-         bash "${SCRIPTS_DIR}/generate_svws_userpasswords.sh" -np "$NEW_ADMIN_PW"; then
+         bash "${SCRIPTS_DIR}/generate_svws_userpasswords.sh" -np "$TESTDB_ADMIN_PASSWORD"; then
         FAILED_DBS+=("$DB_NAME")
     fi
 done
@@ -673,9 +680,10 @@ cat > "${TESTZUGANG_DIR}/index.html" <<EOF
 <main class="w3-container w3-padding-large">
 
     <section>
-        <p>Zugangsdaten für diesen Testserver – <b>nur für Test- und Schulungszwecke</b>.</p>
-        <p>Der Benutzer <b>Admin</b> hat in allen Testdatenbanken dasselbe Kennwort
-        (siehe Kennwortlisten).</p>
+        <p>Zugangsdaten für diesen Testserver – <b>nur für Test- und Schulungszwecke!</b><br>
+        Es werden keine personenbezogenen Daten verwendet:<br>
+        Alle Daten sind generiert bzw. anonymisiert.</p>
+        <p>Der Benutzer <b>Admin</b> hat in allen Testdatenbanken dasselbe Kennwort: <b>${TESTDB_ADMIN_PASSWORD}</b>.</p>
     </section>
 
     <section>
@@ -745,7 +753,7 @@ if [ "$PW_WAS_GENERATED" = true ]; then
 fi
 echo "Das MariaDB-Root-Passwort ist gespeichert in: $ENV_FILE (nur für root lesbar)"
 echo "Testdatenbanken: Benutzer '$SCHEMA_USER', Passwort: $SCHEMA_PASSWORD"
-echo "SVWS-Benutzer 'Admin' in allen Testdatenbanken, Passwort: $NEW_ADMIN_PW"
+echo "SVWS-Benutzer 'Admin' in allen Testdatenbanken, Passwort: $TESTDB_ADMIN_PASSWORD"
 echo "Kennwörter aller übrigen Benutzer: ${PASSWORD_DIR}/Kennwoerter_<Datenbank>.txt"
 echo "Übersichtsseite: http://${SERVER_HOST}/"
 if [ -n "$ACCESS_PASSWORD" ]; then

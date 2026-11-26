@@ -365,7 +365,7 @@ Die Werte werden vor dem Aufruf oben im Skript eingetragen oder als Umgebungsvar
 | SVWS_ADMIN_PW | Kennwort dieses Benutzers (darf leer sein, z. B. bei `Admin` ohne Kennwort) |
 | OUTPUT_FILE | Ausgabedatei, Standard `Kennwoerter.txt` |
 
-Mit `-np <Kennwort>` bekommt zusätzlich der Benutzer `Admin` das angegebene neue Kennwort. Es wird zum Schluss gesetzt, nachdem alle anderen Benutzer ihr Kennwort erhalten haben, und ebenfalls in `Kennwoerter.txt` eingetragen.
+Mit `-np <Kennwort>` bekommt zusätzlich der Benutzer `Admin` das angegebene neue Kennwort. Es wird zum Schluss gesetzt, nachdem alle anderen Benutzer ihr Kennwort erhalten haben, und ebenfalls in `Kennwoerter.txt` eingetragen. Ohne `-np` nimmt das Skript den Wert `TESTDB_ADMIN_PASSWORD` aus der `.env` neben dem Skript, falls er dort steht (das All-in-one-Skript trägt ihn dort ein); sonst bleibt das Kennwort von `Admin` unverändert.
 
 Voraussetzung ist ein MariaDB/MySQL-Client auf dem Server.
 
