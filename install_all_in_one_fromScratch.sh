@@ -86,7 +86,10 @@ while getopts "p:b:m:v:d:a:" opt; do
 done
 
 # --- Gesamte Ausgabe (inkl. Fehlermeldungen) zusätzlich in eine Logdatei schreiben ---
-LOG_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install_all_in_one_$(date '+%Y%m%d_%H%M%S').log"
+LOG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/log"
+mkdir -p "$LOG_DIR"
+chmod 700 "$LOG_DIR"
+LOG_FILE="${LOG_DIR}/install_all_in_one_$(date '+%Y%m%d_%H%M%S').log"
 touch "$LOG_FILE"
 chmod 600 "$LOG_FILE"    # enthält Kennwörter, daher nur für root lesbar
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -551,6 +554,13 @@ rm -f /var/www/html/index.nginx-debian.html
 SCHEMA_USER="svwsadmin"
 SCHEMA_PASSWORD=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 16)
 
+# Schema-Zugang in die .env schreiben (für update_all_in_one_fromScratch.sh)
+grep -v -E '^TESTDB_SCHEMA_(USER|PASSWORD)=' "$ENV_FILE" > "${ENV_FILE}.tmp" || true
+echo "TESTDB_SCHEMA_USER=${SCHEMA_USER}" >> "${ENV_FILE}.tmp"
+echo "TESTDB_SCHEMA_PASSWORD=${SCHEMA_PASSWORD}" >> "${ENV_FILE}.tmp"
+mv "${ENV_FILE}.tmp" "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+
 # Im Skriptordner ausführen: dort liegt die .env mit MARIADB_ROOT_PASSWORD
 # (aus Schritt 4) und dorthin werden die
 # Testdatenbanken (SVWS-TestSqlites) geladen
@@ -641,7 +651,16 @@ Schema-Benutzer der Testdatenbanken: ${SCHEMA_USER}
 Passwort:                            ${SCHEMA_PASSWORD}
 EOF
 
-# Tabellenzeilen für alle Dateien erzeugen (MariaDB zuerst, dann die Kennwortlisten)
+# Client-Secret des WeNoM (für die Synchronisation mit dem SVWS-Server)
+WENOM_SECRET_FILE="/var/www/html/wenom/db/client.sec"
+if [ -f "$WENOM_SECRET_FILE" ]; then
+    cat "$WENOM_SECRET_FILE" > "${TESTZUGANG_DIR}/wenom_credential.txt"
+else
+    echo "Hinweis: ${WENOM_SECRET_FILE} nicht gefunden, wenom_credential.txt wird nicht angelegt."
+fi
+
+# Tabellenzeilen für alle Dateien erzeugen
+# (MariaDB und WeNoM zuerst, dann die Kennwortlisten alphabetisch)
 TESTZUGANG_ROWS=""
 while IFS= read -r FILE; do
     TESTZUGANG_ROWS+="                <tr>
@@ -649,7 +668,9 @@ while IFS= read -r FILE; do
                 </tr>
 "
 done < <(find "$TESTZUGANG_DIR" -maxdepth 1 -type f -name '*.txt' -printf '%f\n' \
-         | sort | awk '$0=="MariaDB.txt"{print; next} {rest=rest $0 "\n"} END{printf "%s", rest}')
+         | sort | awk '$0=="MariaDB.txt"{m=$0; next} $0=="wenom_credential.txt"{w=$0; next}
+                      {rest=rest $0 "\n"}
+                      END{if(m!="")print m; if(w!="")print w; printf "%s", rest}')
 
 cat > "${TESTZUGANG_DIR}/index.html" <<EOF
 <!DOCTYPE html>

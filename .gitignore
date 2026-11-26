@@ -7,5 +7,6 @@ Kennwoerter/
 # Von den Skripten bei Testläufen erzeugte Dateien und Ordner
 Installationsskripte/
 SVWS-TestSqlites/
+log/
 temp_*.sql
 *.log
