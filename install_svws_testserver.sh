@@ -71,6 +71,12 @@ if [ -z "$PASSWORD" ] || [ -z "$SVWSVERSION" ]; then
   usage
 fi
 
+# --- Keine Rückfragen von apt/dpkg (z. B. MariaDB Feedback-Plugin) ---
+# Gilt auch für alle aufgerufenen Skripte und den SVWS-Installer
+export DEBIAN_FRONTEND=noninteractive
+# Frage nach dem MariaDB Feedback-Plugin vorab mit "Nein" beantworten
+echo "mariadb-server mariadb-server/feedback boolean false" | debconf-set-selections
+
 #############################################
 # locales setzen 
 sed -i '/^# de_DE.UTF-8 UTF-8/s/^# //' /etc/locale.gen

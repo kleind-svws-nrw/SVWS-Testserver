@@ -31,7 +31,7 @@
 # --- Hilfe ---
 usage() {
     cat <<EOF
-Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>] [-v <Version>] [-d <Domain>]
+Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>] [-v <Version>] [-d <Domain>] [-a <Passwort>]
 
 Installiert einen All-in-one-Testserver. Der SVWS-Server wird aus einem
 GitHub-Branch gebaut (Ordner SVWS-Server neben dem Skriptordner) und mit dem
@@ -47,6 +47,8 @@ Optionen:
       (optional, Standard: neueste Version von github.com/SVWS-NRW/SVWS-Server/releases)
   -d  Domainname des Servers für Übersichtsseite und WeNoM-Zertifikat
       (optional, sonst wird die IP-Adresse des Servers verwendet)
+  -a  Passwort für den geschützten Bereich /Testzugang (Benutzer svwsadmin)
+      mit den Kennwortlisten (optional, ohne -a wird kein Testzugang angelegt)
   -h  Diese Hilfe anzeigen (auch -help oder --help)
 
 Beispiel:
@@ -68,10 +70,12 @@ SERVERMODE="dev"
 MARIADB_ROOT_PASSWORD=""
 SVWSVERSION=""
 DOMAIN=""
+ACCESS_PASSWORD=""
 
 # Parameter mit getopts einlesen
-while getopts "p:b:m:v:d:" opt; do
+while getopts "p:b:m:v:d:a:" opt; do
   case $opt in
+    a) ACCESS_PASSWORD="$OPTARG" ;;
     d) DOMAIN="$OPTARG" ;;
     v) SVWSVERSION="${OPTARG#v}" ;;
     p) MARIADB_ROOT_PASSWORD="$OPTARG" ;;
@@ -87,6 +91,12 @@ touch "$LOG_FILE"
 chmod 600 "$LOG_FILE"    # enthält Kennwörter, daher nur für root lesbar
 exec > >(tee -a "$LOG_FILE") 2>&1
 echo "Protokoll der Installation: $LOG_FILE"
+
+# --- Keine Rückfragen von apt/dpkg (z. B. MariaDB Feedback-Plugin) ---
+# Gilt auch für alle aufgerufenen Skripte und den SVWS-Installer
+export DEBIAN_FRONTEND=noninteractive
+# Frage nach dem MariaDB Feedback-Plugin vorab mit "Nein" beantworten
+echo "mariadb-server mariadb-server/feedback boolean false" | debconf-set-selections
 
 # Fallback, falls -b oder -m mit leerem Wert übergeben wurden
 [ -z "$BRANCH" ] && BRANCH="dev"
@@ -274,7 +284,8 @@ fi
 # der Release-Dateien von GitHub
 SVWS_APP_PATH="/opt/app/svws"
 SVWS_CONF_PATH="/etc/app/svws/conf"
-SVWS_CONFIG="${SVWS_CONF_PATH}/svwsconfig.json"
+# Der Linux-Installer legt die svwsconfig.json im Programmverzeichnis ab
+SVWS_CONFIG="${SVWS_APP_PATH}/svwsconfig.json"
 ENV_FILE="${SCRIPTS_DIR}/.env"
 
 INSTALL_SCRIPT=$(printf '%s\n' "$LINUX_DIST_DIR"/install-*.sh | sort -V | tail -n 1)
@@ -394,7 +405,13 @@ rm -f "$TMPZIP"
 chown -R --reference="$SVWS_APP_PATH" "$TOOLS_DIR"
 
 # SVWS-Server auf die Tools hinweisen (AppsPath) und neu starten
-sed -i 's|"AppsPath"[[:space:]]*:[[:space:]]*[^,]*|"AppsPath" : "'"$TOOLS_DIR"'"|' "$SVWS_CONFIG"
+if [ -f "$SVWS_CONFIG" ] && grep -q '"AppsPath"' "$SVWS_CONFIG"; then
+    sed -i 's|"AppsPath"[[:space:]]*:[[:space:]]*[^,]*|"AppsPath" : "'"$TOOLS_DIR"'"|' "$SVWS_CONFIG"
+    echo "AppsPath in ${SVWS_CONFIG} gesetzt: $(grep '"AppsPath"' "$SVWS_CONFIG" | sed 's/^[[:space:]]*//')"
+else
+    echo "Fehler: ${SVWS_CONFIG} fehlt oder enthält keinen Eintrag AppsPath."
+    exit 1
+fi
 systemctl restart svws
 
 #############################################
@@ -564,6 +581,140 @@ if [ ${#FAILED_DBS[@]} -gt 0 ]; then
 fi
 
 #############################################
+# 12. Geschützten Testzugang /var/www/html/Testzugang einrichten (nur mit -a)
+#############################################
+# Der Ordner enthält Kennwörter und wird per nginx mit Benutzer/Passwort
+# geschützt (Basic Auth). Die Verschlüsselung übernimmt der vorgeschaltete
+# Reverse-Proxy.
+TESTZUGANG_DIR="/var/www/html/Testzugang"
+TESTZUGANG_USER="svwsadmin"
+TESTZUGANG_HTPASSWD="/etc/nginx/.htpasswd-testzugang"
+TESTZUGANG_SNIPPET="/etc/nginx/snippets/testzugang.conf"
+NGINX_SITE="/etc/nginx/sites-available/default"
+TESTZUGANG_INCLUDE="include ${TESTZUGANG_SNIPPET};"
+
+if [ -z "$ACCESS_PASSWORD" ]; then
+    # Ohne -a keinen Testzugang - auch Reste eines früheren Laufs entfernen
+    echo "Kein Passwort mit -a angegeben: Es wird kein Testzugang eingerichtet."
+    rm -rf "$TESTZUGANG_DIR"
+    rm -f "$TESTZUGANG_HTPASSWD" "$TESTZUGANG_SNIPPET"
+    sed -i "\\|${TESTZUGANG_INCLUDE}|d" "$NGINX_SITE"
+    nginx -t && systemctl reload nginx
+else
+mkdir -p "$TESTZUGANG_DIR"
+rm -f "$TESTZUGANG_DIR"/*
+
+# Kennwortlisten aller Testdatenbanken kopieren
+cp "$PASSWORD_DIR"/Kennwoerter_*.txt "$TESTZUGANG_DIR"/ 2>/dev/null || true
+
+# Datei mit den MariaDB-Zugangsdaten
+cat > "${TESTZUGANG_DIR}/MariaDB.txt" <<EOF
+MariaDB-Zugang auf ${SERVER_HOST} (Port 3306)
+
+Root-Benutzer:   root
+Root-Passwort:   ${MARIADB_ROOT_PASSWORD}
+
+Schema-Benutzer der Testdatenbanken: ${SCHEMA_USER}
+Passwort:                            ${SCHEMA_PASSWORD}
+EOF
+
+# Tabellenzeilen für alle Dateien erzeugen (MariaDB zuerst, dann die Kennwortlisten)
+TESTZUGANG_ROWS=""
+while IFS= read -r FILE; do
+    TESTZUGANG_ROWS+="                <tr>
+                    <td><a href=\"${FILE}\">${FILE}</a></td>
+                </tr>
+"
+done < <(find "$TESTZUGANG_DIR" -maxdepth 1 -type f -name '*.txt' -printf '%f\n' \
+         | sort | awk '$0=="MariaDB.txt"{print; next} {rest=rest $0 "\n"} END{printf "%s", rest}')
+
+cat > "${TESTZUGANG_DIR}/index.html" <<EOF
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <title>${SERVER_HOST} - Testzugang</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+    <style>
+        .header-bg { background-color: #003462; color: white; }
+    </style>
+</head>
+<body>
+
+<header class="w3-container header-bg">
+    <div class="w3-row">
+        <div class="w3-half w3-container">
+            <h1><a href="../" style="text-decoration:none;">SVWS-Server</a></h1>
+            <h4>Testzugang</h4>
+        </div>
+        <div class="w3-half w3-container">
+            <img src="../logo_nrw.jpg" alt="NRW Logo" height="150" class="w3-right w3-padding-16">
+        </div>
+    </div>
+</header>
+
+<main class="w3-container w3-padding-large">
+
+    <section>
+        <p>Zugangsdaten für diesen Testserver – <b>nur für Test- und Schulungszwecke</b>.</p>
+        <p>Der Benutzer <b>Admin</b> hat in allen Testdatenbanken dasselbe Kennwort
+        (siehe Kennwortlisten).</p>
+    </section>
+
+    <section>
+        <table class="w3-table w3-bordered w3-hoverable">
+            <thead>
+                <tr class="w3-light-grey">
+                    <th>Zugangsdaten</th>
+                </tr>
+            </thead>
+            <tbody>
+${TESTZUGANG_ROWS}            </tbody>
+        </table>
+    </section>
+
+</main>
+</body>
+</html>
+EOF
+
+chown -R www-data:www-data "$TESTZUGANG_DIR"
+find "$TESTZUGANG_DIR" -type f -exec chmod 644 {} +
+chmod 755 "$TESTZUGANG_DIR"
+
+# --- Zugriffsschutz in nginx ---
+# Passwortdatei (APR1-Hash, wie htpasswd) für den Benutzer svwsadmin
+command -v openssl &> /dev/null || apt install -y openssl
+printf '%s:%s\n' "$TESTZUGANG_USER" "$(openssl passwd -apr1 "$ACCESS_PASSWORD")" > "$TESTZUGANG_HTPASSWD"
+chown root:www-data "$TESTZUGANG_HTPASSWD"
+chmod 640 "$TESTZUGANG_HTPASSWD"
+
+# Schutzregel als eigene Datei, die in der nginx-Standardseite eingebunden wird
+mkdir -p "$(dirname "$TESTZUGANG_SNIPPET")"
+cat > "$TESTZUGANG_SNIPPET" <<EOF
+# Geschützter Testzugang (angelegt von install_all_in_one_fromScratch.sh)
+location ^~ /Testzugang {
+    auth_basic "Testzugang";
+    auth_basic_user_file ${TESTZUGANG_HTPASSWD};
+}
+EOF
+
+# Einbinden direkt nach "server_name _;" der Standardseite (nur einmal)
+if ! grep -qF "$TESTZUGANG_INCLUDE" "$NGINX_SITE"; then
+    sed -i "0,/^[[:space:]]*server_name _;/s||&\n\t${TESTZUGANG_INCLUDE}|" "$NGINX_SITE"
+fi
+
+if nginx -t; then
+    systemctl reload nginx
+    echo "Testzugang eingerichtet: http://${SERVER_HOST}/Testzugang/ (Benutzer: ${TESTZUGANG_USER})"
+else
+    echo "Fehler: Die nginx-Konfiguration für den Testzugang ist fehlerhaft."
+    exit 1
+fi
+fi
+
+#############################################
 # TODO: weitere Installationsschritte
 #############################################
 
@@ -581,6 +732,9 @@ echo "Testdatenbanken: Benutzer '$SCHEMA_USER', Passwort: $SCHEMA_PASSWORD"
 echo "SVWS-Benutzer 'Admin' in allen Testdatenbanken, Passwort: $NEW_ADMIN_PW"
 echo "Kennwörter aller übrigen Benutzer: ${PASSWORD_DIR}/Kennwoerter_<Datenbank>.txt"
 echo "Übersichtsseite: http://${SERVER_HOST}/"
+if [ -n "$ACCESS_PASSWORD" ]; then
+    echo "Testzugang (Kennwörter): http://${SERVER_HOST}/Testzugang/ - Benutzer ${TESTZUGANG_USER}, Passwort aus -a"
+fi
 echo "Protokoll der Installation: $LOG_FILE"
 echo "------------------------------------------------"
 
