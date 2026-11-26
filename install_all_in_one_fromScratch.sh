@@ -704,7 +704,7 @@ cat > "${TESTZUGANG_DIR}/index.html" <<EOF
         <p>Zugangsdaten für diesen Testserver – <b>nur für Test- und Schulungszwecke!</b><br>
         Es werden keine personenbezogenen Daten verwendet:<br>
         Alle Daten sind generiert bzw. anonymisiert.</p>
-        <p>Der Benutzer <b>Admin</b> hat in allen Testdatenbanken dasselbe Kennwort: <b>${TESTDB_ADMIN_PASSWORD}</b>.</p>
+        <p>Der Benutzer <b>Admin</b> hat in allen Testdatenbanken dasselbe Kennwort: <b>${TESTDB_ADMIN_PASSWORD}</b></p>
     </section>
 
     <section>

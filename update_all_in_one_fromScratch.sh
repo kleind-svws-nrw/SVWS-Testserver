@@ -366,7 +366,7 @@ if [ -f "${TESTZUGANG_DIR}/index.html" ]; then
     replace_first_tbody "${TESTZUGANG_DIR}/index.html" "$TESTZUGANG_ROWS" || exit 1
 
     # Admin-Kennwort im Text aktualisieren
-    sed -i "s|dasselbe Kennwort: <b>[^<]*</b>|dasselbe Kennwort: <b>${TESTDB_ADMIN_PASSWORD}</b>|" \
+    sed -i "s|dasselbe Kennwort: <b>[^<]*</b>\.\?|dasselbe Kennwort: <b>${TESTDB_ADMIN_PASSWORD}</b>|" \
         "${TESTZUGANG_DIR}/index.html"
 
     chown -R www-data:www-data "$TESTZUGANG_DIR"
