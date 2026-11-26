@@ -286,6 +286,27 @@ SVWS_APP_PATH="/opt/app/svws"
 SVWS_CONF_PATH="/etc/app/svws/conf"
 # Der Linux-Installer legt die svwsconfig.json im Programmverzeichnis ab
 SVWS_CONFIG="${SVWS_APP_PATH}/svwsconfig.json"
+
+# Setzt einen Eintrag in der svwsconfig.json - auch wenn er dort noch fehlt.
+# Arbeitet mit jq (sauberes JSON), Besitzer und Rechte der Datei bleiben erhalten.
+#   set_svws_config <Schlüssel> <Wert als Text>
+set_svws_config() {
+    local key="$1" value="$2" tmp
+    if [ ! -f "$SVWS_CONFIG" ]; then
+        echo "Fehler: ${SVWS_CONFIG} nicht gefunden."
+        return 1
+    fi
+    tmp=$(mktemp)
+    if jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$SVWS_CONFIG" > "$tmp"; then
+        cat "$tmp" > "$SVWS_CONFIG"
+        rm -f "$tmp"
+        echo "${SVWS_CONFIG}: \"${key}\" : \"${value}\""
+    else
+        rm -f "$tmp"
+        echo "Fehler: ${SVWS_CONFIG} konnte nicht gelesen werden (kein gültiges JSON?)."
+        return 1
+    fi
+}
 ENV_FILE="${SCRIPTS_DIR}/.env"
 
 INSTALL_SCRIPT=$(printf '%s\n' "$LINUX_DIST_DIR"/install-*.sh | sort -V | tail -n 1)
@@ -330,11 +351,10 @@ fi
 rm -rf "$INSTALL_WORK_DIR"
 
 # ServerMode aus -m setzen (der Installer richtet den Standard ein)
-if [ -f "$SVWS_CONFIG" ]; then
-    sed -i 's|"ServerMode"[[:space:]]*:[[:space:]]*"[^"]*"|"ServerMode" : "'"${SERVERMODE}"'"|' "$SVWS_CONFIG"
+if set_svws_config "ServerMode" "$SERVERMODE"; then
     systemctl restart svws
 else
-    echo "Hinweis: ${SVWS_CONFIG} nicht gefunden, ServerMode wurde nicht gesetzt."
+    echo "Hinweis: ServerMode wurde nicht gesetzt."
 fi
 
 #############################################
@@ -405,11 +425,7 @@ rm -f "$TMPZIP"
 chown -R --reference="$SVWS_APP_PATH" "$TOOLS_DIR"
 
 # SVWS-Server auf die Tools hinweisen (AppsPath) und neu starten
-if [ -f "$SVWS_CONFIG" ] && grep -q '"AppsPath"' "$SVWS_CONFIG"; then
-    sed -i 's|"AppsPath"[[:space:]]*:[[:space:]]*[^,]*|"AppsPath" : "'"$TOOLS_DIR"'"|' "$SVWS_CONFIG"
-    echo "AppsPath in ${SVWS_CONFIG} gesetzt: $(grep '"AppsPath"' "$SVWS_CONFIG" | sed 's/^[[:space:]]*//')"
-else
-    echo "Fehler: ${SVWS_CONFIG} fehlt oder enthält keinen Eintrag AppsPath."
+if ! set_svws_config "AppsPath" "$TOOLS_DIR"; then
     exit 1
 fi
 systemctl restart svws
