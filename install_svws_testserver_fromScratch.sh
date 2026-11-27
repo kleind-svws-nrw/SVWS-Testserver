@@ -31,17 +31,20 @@
 # --- Hilfe ---
 usage() {
     cat <<EOF
-Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>]
+Verwendung: bash $(basename "$0") [-m <ServerMode>] [-b <Branch>] [-p <Passwort>] [-t <Tools-Version>]
 
 Baut den SVWS-Server aus einem GitHub-Branch nach /opt/app/SVWS-Server
 und richtet ihn als systemd-Dienst svws ein (Port 8443).
 Das MariaDB-Root-Passwort wird in die Datei .env neben diesem Skript
-geschrieben (MARIADB_ROOT_PASSWORD=...).
+geschrieben (MARIADB_ROOT_PASSWORD=...). Danach werden die SVWS-Tools mit
+install_tools.sh installiert (muss neben diesem Skript liegen).
 
 Optionen:
   -m  ServerMode, z. B. dev, alpha, beta, stable (optional, Standard: dev)
   -b  Git-Branch, z. B. dev oder master (optional, Standard: dev)
   -p  Passwort für den MariaDB-Root-User (optional, sonst Zufallsgenerierung)
+  -t  Version der SVWS-Tools, z. B. 1.5.1
+      (optional, sonst lädt install_tools.sh das neueste Release)
   -h  Diese Hilfe anzeigen
 
 Beispiel:
@@ -65,10 +68,12 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 BRANCH="dev"
 SERVERMODE="dev"
 MARIADB_ROOT_PASSWORD=""
+TOOLSVERSION=""
 
 # Parameter mit getopts einlesen
-while getopts "p:b:m:" opt; do
+while getopts "p:b:m:t:" opt; do
   case $opt in
+    t) TOOLSVERSION="${OPTARG#v}" ;;
     p) MARIADB_ROOT_PASSWORD="$OPTARG" ;;
     b) BRANCH="$OPTARG" ;;
     m) SERVERMODE="$OPTARG" ;;
@@ -195,6 +200,19 @@ WantedBy=multi-user.target" > /etc/systemd/system/svws.service
 systemctl daemon-reload
 systemctl enable svws
 systemctl start svws
+
+# SVWS-Tools installieren (install_tools.sh neben diesem Skript)
+TOOLS_SCRIPT="${SCRIPT_DIR}/install_tools.sh"
+if [ -f "$TOOLS_SCRIPT" ]; then
+    # -v nur mit -t übergeben, sonst lädt install_tools.sh das neueste Release
+    TOOLS_ARGS=()
+    [ -n "$TOOLSVERSION" ] && TOOLS_ARGS=(-v "$TOOLSVERSION")
+    if ! bash "$TOOLS_SCRIPT" "${TOOLS_ARGS[@]}"; then
+        echo "Hinweis: Die SVWS-Tools konnten nicht installiert werden, der SVWS-Server läuft trotzdem."
+    fi
+else
+    echo "Hinweis: ${TOOLS_SCRIPT} nicht gefunden, die SVWS-Tools werden nicht installiert."
+fi
 
 echo "------------------------------------------------"
 echo "Installation abgeschlossen."

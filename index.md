@@ -63,7 +63,7 @@ Installiert den SVWS-Server mit dem auf GitHub veröffentlichten Linux-Installer
 
 Ergebnis:
 
-+ lokale MariaDB, Root-Passwort = angegebenes Passwort
++ lokale MariaDB, Root-Passwort = angegebenes oder erzeugtes Passwort
 + SVWS-Server unter `/opt/app/svws`, Konfiguration unter `/etc/app/svws/conf`
 + Keystore mit demselben Passwort, Port `8443`
 
@@ -72,7 +72,7 @@ Ergebnis:
 | Parameter | Info |
 |-|-|
 | -v | Pflicht: Version des SVWS-Servers |
-| -p | Pflicht: Passwort für MariaDB-Root und Keystore |
+| -p | Optional: Passwort für MariaDB-Root und Keystore. Ohne Angabe wird ein Passwort mit 12 bis 16 Zeichen erzeugt, am Ende angezeigt und in der `.env` gespeichert. |
 
 **Beispiel:**
 

@@ -9,4 +9,7 @@ Installationsskripte/
 SVWS-TestSqlites/
 log/
 temp_*.sql
+# Downloads des Linux-Installers (install_svws_testserver.sh)
+install-*.sh
+linux-installer-*.tar.gz
 *.log

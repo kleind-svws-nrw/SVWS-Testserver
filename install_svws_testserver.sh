@@ -31,14 +31,16 @@
 # --- Hilfe ---
 usage() {
     cat <<EOF
-Verwendung: bash $(basename "$0") -v <Version> -p <Passwort>
+Verwendung: bash $(basename "$0") -v <Version> [-p <Passwort>]
 
 Installiert den SVWS-Server mit dem offiziellen Linux-Installer ohne Rückfragen
-(MariaDB lokal, /opt/app/svws, Port 8443).
+(MariaDB lokal, /opt/app/svws, Port 8443) und danach die SVWS-Tools derselben
+Version mit install_tools.sh (muss neben diesem Skript liegen).
 
 Optionen:
   -v  Version des SVWS-Servers, z. B. 1.3.2 (Pflicht)
-  -p  Passwort für MariaDB-Root und Keystore (Pflicht)
+  -p  Passwort für MariaDB-Root und Keystore
+      (optional, sonst wird eins mit 12 bis 16 Zeichen erzeugt und am Ende angezeigt)
   -h  Diese Hilfe anzeigen
 
 Beispiel:
@@ -65,10 +67,19 @@ while getopts "p:v:" opt; do
   esac
 done
 
-# Pflichtfelder prüfen
-if [ -z "$PASSWORD" ] || [ -z "$SVWSVERSION" ]; then
-  echo "Fehler: Passwort (-p) und Version (-v) müssen angegeben werden."
+# Pflichtfeld prüfen
+if [ -z "$SVWSVERSION" ]; then
+  echo "Fehler: Die Version (-v) muss angegeben werden."
   usage
+fi
+
+# Passwort optional: ohne -p eins mit 12 bis 16 Zeichen erzeugen
+if [ -z "$PASSWORD" ]; then
+  PW_LENGTH=$(( 12 + RANDOM % 5 ))
+  PASSWORD=$(head /dev/urandom | tr -dc 'A-Za-z0-9' | head -c "$PW_LENGTH")
+  PW_WAS_GENERATED=true
+else
+  PW_WAS_GENERATED=false
 fi
 
 # --- Keine Rückfragen von apt/dpkg (z. B. MariaDB Feedback-Plugin) ---
@@ -116,5 +127,29 @@ INPUT_COUNTRY=DE
 validity_days=3650
 EOF
 
+# .env enthält Passwörter: nur für root lesbar
+chmod 600 .env
+
 # Installation starten
-bash "install-${SVWSVERSION}.sh"
+if ! bash "install-${SVWSVERSION}.sh"; then
+  echo "Fehler: Die Installation des SVWS-Servers ist fehlgeschlagen."
+  exit 1
+fi
+
+# SVWS-Tools derselben Version installieren (install_tools.sh neben diesem Skript)
+TOOLS_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install_tools.sh"
+if [ -f "$TOOLS_SCRIPT" ]; then
+  if ! bash "$TOOLS_SCRIPT" -v "$SVWSVERSION"; then
+    echo "Hinweis: Die SVWS-Tools ${SVWSVERSION} konnten nicht installiert werden, der SVWS-Server läuft trotzdem."
+  fi
+else
+  echo "Hinweis: ${TOOLS_SCRIPT} nicht gefunden, die SVWS-Tools werden nicht installiert."
+fi
+
+echo "------------------------------------------------"
+echo "SVWS-Server ${SVWSVERSION} installiert."
+if [ "$PW_WAS_GENERATED" = true ]; then
+  echo "WICHTIG: Das generierte Passwort für MariaDB-Root und Keystore lautet: $PASSWORD"
+fi
+echo "Das Passwort steht außerdem in $(pwd)/.env (MARIADB_ROOT_PASSWORD)."
+echo "------------------------------------------------"
